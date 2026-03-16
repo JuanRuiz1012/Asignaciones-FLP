@@ -1,0 +1,432 @@
+#lang eopl
+
+; ============================================================
+; Taller 1 - Abstracción de datos y programas
+; Representación de maps usando LISTAS
+; Fundamentos de Interpretación y Compilación de Lenguajes
+; ============================================================
+
+#|
+Gramática:
+
+<map>   ::= '()                    empty-map()
+        ::= <entry> <map>          non-empty-map(ent, mp)
+
+<entry> ::= <key> <value>          entry(k, v)
+
+<key>   ::= <int>                  key-int(i)
+        ::= <symbol>               key-sym(s)
+
+<value> ::= <int>                  val-int(i)
+        ::= <symbol>               val-sym(s)
+        ::= <lint>                 val-lint(lst)
+        ::= <lsym>                 val-lsym(lst)
+
+<lint>  ::= '()                    empty-lint()
+        ::= <int> <lint>           non-empty-lint(num, lst)
+
+<lsym>  ::= '()                    empty-lsym()
+        ::= <symbol> <lsym>        non-empty-lsym(sym, lst)
+|#
+
+; ============================================================
+; TAD: lint (lista de enteros)
+; ============================================================
+
+; Constructor: crea una lista vacía de enteros
+(define empty-lint
+  (lambda ()
+    (list 'empty-lint)))
+
+; Constructor: crea una lista no vacía de enteros
+(define non-empty-lint
+  (lambda (num lst)
+    (list 'non-empty-lint num lst)))
+
+; Predicado: verifica si es lista vacía de enteros
+(define empty-lint?
+  (lambda (lst)
+    (equal? (car lst) 'empty-lint)))
+
+; Predicado: verifica si es lista no vacía de enteros
+(define non-empty-lint?
+  (lambda (lst)
+    (equal? (car lst) 'non-empty-lint)))
+
+; Extractor: obtiene el primer entero de la lista
+(define non-empty-lint->num
+  (lambda (lst)
+    (cadr lst)))
+
+; Extractor: obtiene el resto de la lista de enteros
+(define non-empty-lint->lst
+  (lambda (lst)
+    (caddr lst)))
+
+; ============================================================
+; TAD: lsym (lista de símbolos)
+; ============================================================
+
+; Constructor: crea una lista vacía de símbolos
+(define empty-lsym
+  (lambda ()
+    (list 'empty-lsym)))
+
+; Constructor: crea una lista no vacía de símbolos
+(define non-empty-lsym
+  (lambda (sym lst)
+    (list 'non-empty-lsym sym lst)))
+
+; Predicado: verifica si es lista vacía de símbolos
+(define empty-lsym?
+  (lambda (lst)
+    (equal? (car lst) 'empty-lsym)))
+
+; Predicado: verifica si es lista no vacía de símbolos
+(define non-empty-lsym?
+  (lambda (lst)
+    (equal? (car lst) 'non-empty-lsym)))
+
+; Extractor: obtiene el primer símbolo de la lista
+(define non-empty-lsym->sym
+  (lambda (lst)
+    (cadr lst)))
+
+; Extractor: obtiene el resto de la lista de símbolos
+(define non-empty-lsym->lst
+  (lambda (lst)
+    (caddr lst)))
+
+; ============================================================
+; TAD: key (clave del map)
+; ============================================================
+
+; Constructor: crea una clave entera
+(define key-int
+  (lambda (i)
+    (list 'key-int i)))
+
+; Constructor: crea una clave simbólica
+(define key-sym
+  (lambda (s)
+    (list 'key-sym s)))
+
+; Predicado: verifica si la clave es entera
+(define key-int?
+  (lambda (k)
+    (equal? (car k) 'key-int)))
+
+; Predicado: verifica si la clave es simbólica
+(define key-sym?
+  (lambda (k)
+    (equal? (car k) 'key-sym)))
+
+; Extractor: obtiene el entero de una clave entera
+(define key-int->i
+  (lambda (k)
+    (cadr k)))
+
+; Extractor: obtiene el símbolo de una clave simbólica
+(define key-sym->s
+  (lambda (k)
+    (cadr k)))
+
+; ============================================================
+; TAD: value (valor del map)
+; ============================================================
+
+; Constructor: crea un valor entero
+(define val-int
+  (lambda (i)
+    (list 'val-int i)))
+
+; Constructor: crea un valor simbólico
+(define val-sym
+  (lambda (s)
+    (list 'val-sym s)))
+
+; Constructor: crea un valor de lista de enteros
+(define val-lint
+  (lambda (lst)
+    (list 'val-lint lst)))
+
+; Constructor: crea un valor de lista de símbolos
+(define val-lsym
+  (lambda (lst)
+    (list 'val-lsym lst)))
+
+; Predicado: verifica si el valor es entero
+(define val-int?
+  (lambda (v)
+    (equal? (car v) 'val-int)))
+
+; Predicado: verifica si el valor es simbólico
+(define val-sym?
+  (lambda (v)
+    (equal? (car v) 'val-sym)))
+
+; Predicado: verifica si el valor es lista de enteros
+(define val-lint?
+  (lambda (v)
+    (equal? (car v) 'val-lint)))
+
+; Predicado: verifica si el valor es lista de símbolos
+(define val-lsym?
+  (lambda (v)
+    (equal? (car v) 'val-lsym)))
+
+; Extractor: obtiene el entero de val-int
+(define val-int->i
+  (lambda (v)
+    (cadr v)))
+
+; Extractor: obtiene el símbolo de val-sym
+(define val-sym->s
+  (lambda (v)
+    (cadr v)))
+
+; Extractor: obtiene la lista de val-lint
+(define val-lint->lst
+  (lambda (v)
+    (cadr v)))
+
+; Extractor: obtiene la lista de val-lsym
+(define val-lsym->lst
+  (lambda (v)
+    (cadr v)))
+
+; ============================================================
+; TAD: entry (par clave-valor)
+; ============================================================
+
+; Constructor: crea una entrada con clave y valor
+(define entry
+  (lambda (k v)
+    (list 'entry k v)))
+
+; Predicado: verifica si es una entrada
+(define entry?
+  (lambda (e)
+    (equal? (car e) 'entry)))
+
+; Extractor: obtiene la clave de la entrada
+(define entry->k
+  (lambda (e)
+    (cadr e)))
+
+; Extractor: obtiene el valor de la entrada
+(define entry->v
+  (lambda (e)
+    (caddr e)))
+
+; ============================================================
+; TAD: map
+; ============================================================
+
+; Constructor: crea un map vacío
+(define empty-map
+  (lambda ()
+    (list 'empty-map)))
+
+; Constructor: crea un map no vacío con entrada y map previo
+(define non-empty-map
+  (lambda (ent mp)
+    (list 'non-empty-map ent mp)))
+
+; Predicado: verifica si el map está vacío
+(define empty-map?
+  (lambda (mp)
+    (equal? (car mp) 'empty-map)))
+
+; Predicado: verifica si el map no está vacío
+(define non-empty-map?
+  (lambda (mp)
+    (equal? (car mp) 'non-empty-map)))
+
+; Extractor: obtiene la primera entrada del map
+(define non-empty-map->ent
+  (lambda (mp)
+    (cadr mp)))
+
+; Extractor: obtiene el resto del map
+(define non-empty-map->mp
+  (lambda (mp)
+    (caddr mp)))
+
+; ============================================================
+; Funciones auxiliares internas
+; ============================================================
+
+; keys-equal?: compara dos claves nativas (int o symbol)
+(define keys-equal?
+  (lambda (k1 k2)
+    (equal? k1 k2)))
+
+; build-key: construye el constructor de clave según el tipo nativo
+(define build-key
+  (lambda (k)
+    (if (number? k)
+        (key-int k)
+        (key-sym k))))
+
+; build-value: construye el constructor de valor según el tipo nativo
+(define build-value
+  (lambda (v)
+    (cond
+      [(number? v) (val-int v)]
+      [(symbol? v) (val-sym v)]
+      [(and (list? v) (not (null? v)) (number? (car v)))
+       (val-lint (list->lint v))]
+      [(and (list? v) (not (null? v)) (symbol? (car v)))
+       (val-lsym (list->lsym v))]
+      [(null? v) (val-lint (empty-lint))]
+      [else (eopl:error "build-value: tipo de valor no soportado ~s" v)])))
+
+; list->lint: convierte una lista nativa de enteros en lint
+(define list->lint
+  (lambda (lst)
+    (if (null? lst)
+        (empty-lint)
+        (non-empty-lint (car lst) (list->lint (cdr lst))))))
+
+; list->lsym: convierte una lista nativa de símbolos en lsym
+(define list->lsym
+  (lambda (lst)
+    (if (null? lst)
+        (empty-lsym)
+        (non-empty-lsym (car lst) (list->lsym (cdr lst))))))
+
+; unwrap-key: extrae el valor nativo de una clave
+(define unwrap-key
+  (lambda (k)
+    (cond
+      [(key-int? k) (key-int->i k)]
+      [(key-sym? k) (key-sym->s k)]
+      [else (eopl:error "unwrap-key: clave inválida ~s" k)])))
+
+; unwrap-value: extrae el valor nativo de un value
+(define unwrap-value
+  (lambda (v)
+    (cond
+      [(val-int? v) (val-int->i v)]
+      [(val-sym? v) (val-sym->s v)]
+      [(val-lint? v) (lint->list (val-lint->lst v))]
+      [(val-lsym? v) (lsym->list (val-lsym->lst v))]
+      [else (eopl:error "unwrap-value: valor inválido ~s" v)])))
+
+; lint->list: convierte lint en lista nativa de enteros
+(define lint->list
+  (lambda (lst)
+    (cond
+      [(empty-lint? lst) '()]
+      [(non-empty-lint? lst)
+       (cons (non-empty-lint->num lst)
+             (lint->list (non-empty-lint->lst lst)))]
+      [else (eopl:error "lint->list: lista inválida ~s" lst)])))
+
+; lsym->list: convierte lsym en lista nativa de símbolos
+(define lsym->list
+  (lambda (lst)
+    (cond
+      [(empty-lsym? lst) '()]
+      [(non-empty-lsym? lst)
+       (cons (non-empty-lsym->sym lst)
+             (lsym->list (non-empty-lsym->lst lst)))]
+      [else (eopl:error "lsym->list: lista inválida ~s" lst)])))
+
+; ============================================================
+; Funciones principales del map
+; ============================================================
+
+; insert: map x clave-nativa x valor-nativo -> map
+; Inserta o actualiza una entrada en el map.
+; Si la clave ya existe, actualiza su valor; si no, la agrega.
+(define insert
+  (lambda (mp k v)
+    (letrec
+        ((insert-aux
+          (lambda (mp k v acc)
+            (cond
+              [(empty-map? mp)
+               ; Clave no encontrada: agregar al frente del acumulador
+               (rebuild-map (non-empty-map (entry (build-key k) (build-value v))
+                                           (empty-map))
+                            acc)]
+              [(non-empty-map? mp)
+               (let* ((ent (non-empty-map->ent mp))
+                      (rest (non-empty-map->mp mp))
+                      (ent-key (unwrap-key (entry->k ent))))
+                 (if (keys-equal? ent-key k)
+                     ; Clave encontrada: actualizar valor y reconstruir
+                     (rebuild-map (non-empty-map (entry (build-key k) (build-value v))
+                                                 rest)
+                                  acc)
+                     ; Clave distinta: seguir buscando
+                     (insert-aux rest k v (cons ent acc))))]
+              [else (eopl:error "insert: map inválido ~s" mp)]))))
+         (insert-aux mp k v '()))))
+
+; rebuild-map: reconstruye el map aplicando el acumulador
+(define rebuild-map
+  (lambda (mp acc)
+    (if (null? acc)
+        mp
+        (rebuild-map (non-empty-map (car acc) mp) (cdr acc)))))
+
+; search: map x clave-nativa -> valor-nativo
+; Busca la clave en el map y retorna su valor nativo.
+; Si no se encuentra, genera un error.
+(define search
+  (lambda (mp k)
+    (cond
+      [(empty-map? mp)
+       (eopl:error "search: clave no encontrada ~s" k)]
+      [(non-empty-map? mp)
+       (let* ((ent (non-empty-map->ent mp))
+              (ent-key (unwrap-key (entry->k ent))))
+         (if (keys-equal? ent-key k)
+             (unwrap-value (entry->v ent))
+             (search (non-empty-map->mp mp) k)))]
+      [else (eopl:error "search: map inválido ~s" mp)])))
+
+; delete: map x clave-nativa -> map
+; Elimina la entrada con la clave dada del map.
+; Si la clave no existe, genera un error.
+(define delete
+  (lambda (mp k)
+    (letrec
+        ((delete-aux
+          (lambda (mp k acc found?)
+            (cond
+              [(empty-map? mp)
+               (if found?
+                   (rebuild-map (empty-map) acc)
+                   (eopl:error "delete: clave no encontrada ~s" k))]
+              [(non-empty-map? mp)
+               (let* ((ent (non-empty-map->ent mp))
+                      (rest (non-empty-map->mp mp))
+                      (ent-key (unwrap-key (entry->k ent))))
+                 (if (keys-equal? ent-key k)
+                     ; Clave encontrada: omitir esta entrada
+                     (delete-aux rest k acc #t)
+                     ; Clave distinta: conservar y seguir
+                     (delete-aux rest k (cons ent acc) found?)))]
+              [else (eopl:error "delete: map inválido ~s" mp)]))))
+      (delete-aux mp k '() #f))))
+
+; ============================================================
+; provide para uso en tests
+; ============================================================
+
+(provide empty-map non-empty-map empty-map? non-empty-map?
+         non-empty-map->ent non-empty-map->mp
+         entry entry? entry->k entry->v
+         key-int key-sym key-int? key-sym? key-int->i key-sym->s
+         val-int val-sym val-lint val-lsym
+         val-int? val-sym? val-lint? val-lsym?
+         val-int->i val-sym->s val-lint->lst val-lsym->lst
+         empty-lint non-empty-lint empty-lint? non-empty-lint?
+         non-empty-lint->num non-empty-lint->lst
+         empty-lsym non-empty-lsym empty-lsym? non-empty-lsym?
+         non-empty-lsym->sym non-empty-lsym->lst
+         insert search delete)
