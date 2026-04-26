@@ -1,0 +1,332 @@
+#lang eopl
+
+(require eopl)
+
+;; INICIA FIlI
+
+(define especificacion-lexica
+  '(
+    (espacio-blanco (whitespace) skip)
+    (comentario ("%" (arbno (not #\newline))) skip)
+    (numero (digit (arbno digit)) number)
+    (numero ("-" digit (arbno digit)) number)
+    (numero (digit (arbno digit) "." digit (arbno digit)) number)
+    (numero ("-" digit (arbno digit) "." digit (arbno digit)) number)
+    (identificador (letter (arbno (or letter digit "?" "$"))) symbol)
+    ))
+
+(define especificacion-gramatical
+  '(
+    ; Programa
+    (programa (expresion) a-program)
+
+    ; Expresiones base
+    (expresion (numero) lit-exp)
+    (expresion (identificador) var-exp)
+    (expresion ("true") true-exp)
+    (expresion ("false") false-exp)
+    (expresion
+     (primitiva "(" (separated-list expresion ",") ")")
+     prim-exp)
+    (expresion
+     ("if" expresion "then" expresion "else" expresion)
+     if-exp)
+    (expresion
+     ("let" (arbno identificador "=" expresion) "in" expresion)
+     let-exp)
+
+    ;cond-exp
+    (expresion
+     ("cond" (arbno expresion "==>" expresion)
+             "else" "==>" expresion "end")
+     cond-exp)
+
+    ;let*-exp
+    (expresion
+     ("let*" (arbno identificador "=" expresion) "in" expresion)
+     let*-exp)
+
+    ;unless-exp
+    (expresion
+     ("unless" expresion "then" expresion "else" expresion)
+     unless-exp)
+
+    ; Primitivas aritméticas y relacionales
+    (primitiva ("+") sum-prim)
+    (primitiva ("-") minus-prim)
+    (primitiva ("*") mult-prim)
+    (primitiva ("/") div-prim)
+    (primitiva ("add1") add-prim)
+    (primitiva ("sub1") sub-prim)
+    (primitiva (">") mayor-prim)
+    (primitiva (">=") mayorigual-prim)
+    (primitiva ("<") menor-prim)
+    (primitiva ("<=") menorigual-prim)
+    (primitiva ("==") igual-prim)
+
+    ; Primitivas nuevas 
+    (primitiva ("not") not-prim)
+    (primitiva ("and") and-prim)
+    (primitiva ("or") or-prim)
+    (primitiva ("min") min-prim)
+    (primitiva ("max") max-prim)
+    (primitiva ("mod") mod-prim)
+    (primitiva ("pow") pow-prim)
+    ))
+
+;; Genera define-datatype desde la gramática
+(sllgen:make-define-datatypes especificacion-lexica especificacion-gramatical)
+
+;; scanner 
+
+(define scanner
+  (sllgen:make-string-scanner especificacion-lexica especificacion-gramatical))
+
+;; parser 
+(define parser
+  (sllgen:make-string-parser especificacion-lexica especificacion-gramatical))
+
+
+(define-datatype ambiente ambiente?
+  (ambiente-vacio)
+  (ambiente-extendido
+   (ids  (list-of symbol?))
+   (vals (list-of scheme-value?))
+   (env  ambiente?)))
+
+;; scheme-value?
+(define scheme-value?
+  (lambda (v)
+    (or (number? v) (boolean? v))))
+
+(define apply-env
+  (lambda (env id)
+    (cases ambiente env
+      (ambiente-vacio ()
+        (eopl:error 'apply-env "Variable no ligada: ~s" id))
+      (ambiente-extendido (ids vals old-env)
+        (letrec
+            ((buscar
+              (lambda (ids vals)
+                (cond
+                  [(null? ids) (apply-env old-env id)]
+                  [(equal? (car ids) id) (car vals)]
+                  [else (buscar (cdr ids) (cdr vals))]))))
+          (buscar ids vals))))))
+
+;; ambiente-inicial 
+(define ambiente-inicial
+  (lambda ()
+    (ambiente-extendido
+     '(x y z a b c)
+     '(4 2 5 4 5 6)
+     (ambiente-vacio))))
+
+;;TERMINA FILI
+;;
+;; INICIA JH 
+
+(define evaluar-programa
+  (lambda (pgm)
+    (cases programa pgm
+      (a-program (exp)
+        (evaluar-expresion exp (ambiente-inicial))))))
+
+
+(define evaluar-expresion
+  (lambda (exp env)
+    (cases expresion exp
+
+      ; lit-exp 
+      (lit-exp (dato) dato)
+
+      ; var-exp 
+      (var-exp (id) (apply-env env id))
+
+      ; true-exp / false-exp 
+      (true-exp () #true)
+      (false-exp () #false)
+
+      ; prim-exp 
+      (prim-exp (prim rands)
+        (let ((args (map (lambda (r) (evaluar-expresion r env)) rands)))
+          (evaluar-primitiva prim args)))
+
+      ; if-exp 
+      (if-exp (test true-exp false-exp)
+        (let ((test-value (evaluar-expresion test env)))
+          (if (boolean? test-value)
+              (if test-value
+                  (evaluar-expresion true-exp env)
+                  (evaluar-expresion false-exp env))
+              (eopl:error 'if-exp
+                "La condición debe ser booleana, se recibió: ~s" test-value))))
+
+      ; let-exp 
+      (let-exp (ids rands body)
+        (let ((vals (map (lambda (r) (evaluar-expresion r env)) rands)))
+          (evaluar-expresion body (ambiente-extendido ids vals env))))
+
+      ; cond-exp 
+      (cond-exp (conditions actions default)
+        (letrec
+            ((evaluar-cond
+              (lambda (conds acts)
+                (cond
+                  [(null? conds)
+                   (evaluar-expresion default env)]
+                  [else
+                   (let ((test-value (evaluar-expresion (car conds) env)))
+                     (if (boolean? test-value)
+                         (if test-value
+                             (evaluar-expresion (car acts) env)
+                             (evaluar-cond (cdr conds) (cdr acts)))
+                         (eopl:error 'cond-exp
+                           "Condición no booleana: ~s" test-value)))]))))
+          (evaluar-cond conditions actions)))
+
+      ;;TERMINA JH
+      ;;
+      ;; INICIA OSPINA
+      (let*-exp (ids rands body)
+        (letrec
+            ((extender-secuencial
+              (lambda (ids rands env-actual)
+                (if (null? ids)
+                    (evaluar-expresion body env-actual)
+                    (let ((val (evaluar-expresion (car rands) env-actual)))
+                      (extender-secuencial
+                       (cdr ids)
+                       (cdr rands)
+                       (ambiente-extendido (list (car ids)) (list val) env-actual)))))))
+          (extender-secuencial ids rands env)))
+
+      ; unless-exp 
+      (unless-exp (test usual except)
+        (let ((test-value (evaluar-expresion test env)))
+          (if (boolean? test-value)
+              (if test-value
+                  (evaluar-expresion except env)
+                  (evaluar-expresion usual env))
+              (eopl:error 'unless-exp
+                "La condición debe ser booleana, se recibió: ~s" test-value))))
+      )))
+
+
+(define evaluar-primitiva
+  (lambda (prim args)
+    (cases primitiva prim
+
+      ; sum-prim 
+      (sum-prim ()
+        (apply + args))
+
+      ; minus-prim 
+      (minus-prim ()
+        (apply - args))
+
+      ; mult-prim 
+      (mult-prim ()
+        (apply * args))
+
+      ; div-prim
+      (div-prim ()
+        (apply / args))
+
+      ; add-prim 
+      (add-prim ()
+        (if (= (length args) 1)
+            (+ (car args) 1)
+            (eopl:error 'add-prim "add1 es unaria, recibió ~s argumentos" (length args))))
+
+      ; sub-prim 
+      (sub-prim ()
+        (if (= (length args) 1)
+            (- (car args) 1)
+            (eopl:error 'sub-prim "sub1 es unaria, recibió ~s argumentos" (length args))))
+
+      ; mayor-prim 
+      (mayor-prim ()
+        (apply > args))
+
+      ; mayorigual-prim 
+      (mayorigual-prim ()
+        (apply >= args))
+
+      ; menor-prim 
+      (menor-prim ()
+        (apply < args))
+
+      ; menorigual-prim
+      (menorigual-prim ()
+        (apply <= args))
+
+      ; igual-prim 
+      (igual-prim ()
+        (apply = args))
+
+
+
+      ; not-prim 
+      (not-prim ()
+        (if (= (length args) 1)
+            (let ((v (car args)))
+              (if (boolean? v)
+                  (not v)
+                  (eopl:error 'not-prim "not requiere booleano, recibió: ~s" v)))
+            (eopl:error 'not-prim "not es unaria, recibió ~s argumentos" (length args))))
+
+      ; and-prim
+      (and-prim ()
+        (if (= (length args) 2)
+            (let ((v1 (car args)) (v2 (cadr args)))
+              (if (and (boolean? v1) (boolean? v2))
+                  (and v1 v2)
+                  (eopl:error 'and-prim "and requiere dos booleanos, recibió: ~s ~s" v1 v2)))
+            (eopl:error 'and-prim "and requiere exactamente 2 argumentos")))
+
+      ; or-prim 
+      (or-prim ()
+        (if (= (length args) 2)
+            (let ((v1 (car args)) (v2 (cadr args)))
+              (if (and (boolean? v1) (boolean? v2))
+                  (or v1 v2)
+                  (eopl:error 'or-prim "or requiere dos booleanos, recibió: ~s ~s" v1 v2)))
+            (eopl:error 'or-prim "or requiere exactamente 2 argumentos")))
+
+      ; min-prim 
+      (min-prim ()
+        (if (>= (length args) 1)
+            (apply min args)
+            (eopl:error 'min-prim "min requiere al menos 1 argumento")))
+
+      ; max-prim 
+      (max-prim ()
+        (if (>= (length args) 1)
+            (apply max args)
+            (eopl:error 'max-prim "max requiere al menos 1 argumento")))
+
+      ; mod-prim 
+      (mod-prim ()
+        (if (= (length args) 2)
+            (modulo (car args) (cadr args))
+            (eopl:error 'mod-prim "mod requiere exactamente 2 argumentos")))
+
+      ; pow-prim 
+      (pow-prim ()
+        (if (= (length args) 2)
+            (expt (car args) (cadr args))
+            (eopl:error 'pow-prim "pow requiere exactamente 2 argumentos")))
+      )))
+
+
+;;TERMINA JD 
+(define interpretador
+  (sllgen:make-rep-loop
+   "MiniLang> "
+   (lambda (pgm) (evaluar-programa pgm))
+   (sllgen:make-stream-parser
+    especificacion-lexica especificacion-gramatical)))
+
+
+(provide (all-defined-out))
