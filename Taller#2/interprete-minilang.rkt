@@ -185,9 +185,7 @@
                            "Condición no booleana: ~s" test-value)))]))))
           (evaluar-cond conditions actions)))
 
-      ;;TERMINA JH
-      ;;
-      ;; INICIA OSPINA
+      
       (let*-exp (ids rands body)
         (letrec
             ((extender-secuencial
@@ -212,7 +210,9 @@
                 "La condición debe ser booleana, se recibió: ~s" test-value))))
       )))
 
-
+;;TERMINA JH
+;;
+;; INICIA OSPINA
 (define evaluar-primitiva
   (lambda (prim args)
     (cases primitiva prim
