@@ -5,7 +5,7 @@
 ;; Fundamentos de Lenguajes de Programación — 2026-1
 ;; ============================================================
 ;; Autores: JHORMAN RICARDO LOAIZA 2359710,
-;;          JUAN DIEGO OSPINA 2359000,
+;;          JUAN DIEGO OSPINA 2359486,
 ;;          MAURICIO ALEJANDRO ROJAS 2359701,
 ;;          JUAN FELIPE RUIZ 2359397
 ;; ============================================================
@@ -267,11 +267,6 @@
     ;; Variable: liga el valor completo
     (patron (identificador) var-pat)
 
-    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; ---- Primitivas ----                      ;;
-    ;; Responsable: Jhorman Ricardo Loaiza       ;;
-    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
     ;; Aritméticas
     (primitiva ("+") sum-prim)
     (primitiva ("-") minus-prim)
@@ -316,7 +311,7 @@
 
 
 ;; ============================================================
-;; Unparse
+;; Unparse JHORMAN RICARDO LOAIZA
 ;; ============================================================
 
 ;; unparse-lista : (Listof T) x (T -> String) x String -> String
@@ -542,7 +537,7 @@
 
 
 ;; ============================================================
-;; Ambiente y Store Juan Diego Ospina
+;; Ambiente 
 ;; ============================================================
 
 ;; scheme-value? : Any -> Boolean
