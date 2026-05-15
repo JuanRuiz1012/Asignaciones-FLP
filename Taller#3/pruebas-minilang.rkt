@@ -1,14 +1,11 @@
 #lang eopl
 
 ;; ============================================================
-;; Taller 3: Asignación y chequeo de tipos — Pruebas
+;; Taller 3 — Pruebas completas (Intérprete y Chequeador)
 ;; Fundamentos de Lenguajes de Programación — 2026-1
-;; Universidad del Valle
 ;; ============================================================
-;; Autores: JHORMAN RICARDO LOAIZA 2359710,
-;;          JUAN DIEGO OSPINA     2359486,
-;;          MAURICIO ALEJANDRO ROJAS 2359701,
-;;          JUAN FELIPE RUIZ      2359397
+;; Autores: JHORMAN RICARDO LOAIZA 2359710, JUAN DIEGO OSPINA 2359486,
+;;          MAURICIO ALEJANDRO ROJAS 2359701, JUAN FELIPE RUIZ 2359397
 ;; ============================================================
 
 (require eopl)
@@ -16,341 +13,537 @@
 (require "checker-minilang.rkt")
 
 ;; ============================================================
-;; Utilidades de prueba
+;; UTILIDADES PARA TESTING
 ;; ============================================================
 
-;; test-ok : String x String x Any -> Void
-;; Propósito: ejecuta run con src; si el resultado es igual a expected
-;;            imprime [PASS], de lo contrario imprime [FAIL] con detalles.
-(define test-ok
-  (lambda (nombre src expected)
-    (let ((result (run src)))
-      (if (equal? result expected)
+;; test-interprete : String x Any -> Void
+;; Propósito: prueba que el intérprete evalúe correctamente.
+(define test-interprete
+  (lambda (programa resultado-esperado)
+    (let ((pgm (parser programa)))
+      (let ((resultado (evaluar-programa pgm)))
+        (if (equal? resultado resultado-esperado)
+            (begin
+              (display "✓ PASS: ")
+              (display programa)
+              (newline))
+            (begin
+              (display "✗ FAIL: ")
+              (display programa)
+              (newline)
+              (display "  Esperado: ")
+              (display resultado-esperado)
+              (display ", Obtenido: ")
+              (display resultado)
+              (newline)))))))
+
+;; test-checker : String x Symbol -> Void
+;; Propósito: prueba que el chequeador infiera el tipo correcto.
+(define test-checker
+  (lambda (programa tipo-esperado)
+    (let ((tipo-obtenido (run-check programa)))
+      (if (equal? tipo-obtenido tipo-esperado)
           (begin
-            (display "[PASS] ")
-            (display nombre)
+            (display "✓ PASS TYPE: ")
+            (display programa)
             (newline))
           (begin
-            (display "[FAIL] ")
-            (display nombre)
-            (display " — esperado: ")
-            (display expected)
-            (display " obtenido: ")
-            (display result)
+            (display "✗ FAIL TYPE: ")
+            (display programa)
+            (newline)
+            (display "  Esperado: ")
+            (display tipo-esperado)
+            (display ", Obtenido: ")
+            (display tipo-obtenido)
             (newline))))))
 
-;; test-error : String x String -> Void
-;; Propósito: ejecuta run con src; si lanza una excepción imprime [PASS];
-;;            si NO lanza excepción imprime [FAIL].
-(define test-error
-  (lambda (nombre src)
-    (with-exception-handler
-     (lambda (exn)
-       (display "[PASS] ")
-       (display nombre)
-       (display " (error esperado)")
-       (newline))
-     (lambda ()
-       (let ((result (run src)))
-         (display "[FAIL] ")
-         (display nombre)
-         (display " — debió lanzar error pero retornó: ")
-         (display result)
-         (newline))))))
+;; test-error-interprete : String -> Void
+;; Propósito: verifica que el intérprete lance un error.
+(define test-error-interprete
+  (lambda (programa)
+    (let/cc k
+      (with-handlers ([exn:fail? (lambda (e)
+                                   (display "✓ PASS ERROR: ")
+                                   (display programa)
+                                   (newline)
+                                   (k (void)))])
+        (let ((pgm (parser programa)))
+          (evaluar-programa pgm)
+          (begin
+            (display "✗ FAIL: Debió lanzar error: ")
+            (display programa)
+            (newline)))))))
 
-;; test-check-ok : String x String x String -> Void
-;; Propósito: verifica que el chequeador acepte src y retorne el tipo esperado.
-(define test-check-ok
-  (lambda (nombre src expected-type-str)
-    (let ((t (check src)))
-      (let ((t-str (symbol->string
-                    (let ((ext (type-to-external-form t)))
-                      (if (symbol? ext) ext 'proc-type)))))
-        (display "[CHECK-PASS] ")
-        (display nombre)
-        (display " — tipo: ")
-        (display (type-to-external-form t))
-        (newline)))))
-
-;; test-check-error : String x String -> Void
-;; Propósito: verifica que el chequeador rechace src.
-(define test-check-error
-  (lambda (nombre src)
-    (with-exception-handler
-     (lambda (exn)
-       (display "[CHECK-PASS] ")
-       (display nombre)
-       (display " (error de tipo esperado)")
-       (newline))
-     (lambda ()
-       (let ((t (check src)))
-         (display "[CHECK-FAIL] ")
-         (display nombre)
-         (display " — debió rechazar pero aceptó con tipo: ")
-         (display (type-to-external-form t))
-         (newline))))))
+;; test-error-checker : String -> Void
+;; Propósito: verifica que el chequeador lance un error.
+(define test-error-checker
+  (lambda (programa)
+    (let/cc k
+      (with-handlers ([exn:fail? (lambda (e)
+                                   (display "✓ PASS TYPE ERROR: ")
+                                   (display programa)
+                                   (newline)
+                                   (k (void)))])
+        (run-check programa)
+        (begin
+          (display "✗ FAIL: Debió lanzar error de tipo: ")
+          (display programa)
+          (newline))))))
 
 ;; ============================================================
-;; PARTE 1 — Pruebas del intérprete (TAD referencia + asignación)
+;; PARTE 1: PRUEBAS DEL TAD REFERENCIA Y ASIGNACIÓN
 ;; ============================================================
 
-(display "\n=== PARTE 1: Intérprete — casos correctos ===\n")
+(display "========================================")
+(newline)
+(display "PARTE 1: TAD REFERENCIA Y ASIGNACIÓN")
+(newline)
+(display "========================================")
+(newline)
+(newline)
 
-;; P1-01: ligadura let (inmutable) — devuelve el valor ligado
-(test-ok "P1-01 let simple"
-  "let n : int = 42 in n"
-  42)
+;; ----------------------------------------
+;; 1.1 let-exp (inmutables)
+;; ----------------------------------------
+(display "--- 1.1 let-exp (inmutables) ---")
+(newline)
 
-;; P1-02: ligadura var (mutable) — devuelve el valor inicial
-(test-ok "P1-02 var simple"
-  "var n : int = 10 in n"
-  10)
+(test-interprete "let x = 10 in x" 10)
+(test-interprete "let x = 5 y = 3 in +(x,y)" 8)
+(test-interprete "let x = 10 in let y = 20 in +(x,y)" 30)
 
-;; P1-03: mutación simple con begin
-(test-ok "P1-03 var + set + begin"
-  "var n : int = 0
-   in
-   begin
-     set n := +(n, 10);
-     set n := *(n, 2);
-     n
-   end"
-  20)
+;; ----------------------------------------
+;; 1.2 var-exp (mutables)
+;; ----------------------------------------
+(display "--- 1.2 var-exp (mutables) ---")
+(newline)
 
-;; P1-04: freeze — congela y retorna el valor después de la mutación previa
-(test-ok "P1-04 freeze exitoso"
-  "var k : int = 7
-   in
-   begin
-     set k := +(k, 3);
-     freeze k;
-     k
-   end"
-  10)
+(test-interprete "var x = 10 in x" 10)
+(test-interprete "var x = 5 y = 3 in +(x,y)" 8)
 
-;; P1-05: let + var anidados — combinación de inmutable y mutable
-(test-ok "P1-05 let + var anidados"
-  "let base : int = 100
-   in
-   var contador : int = 0
-   in
-   begin
-     set contador := +(contador, base);
-     set contador := +(contador, 1);
-     contador
-   end"
-  101)
+;; ----------------------------------------
+;; 1.3 set-exp (asignación)
+;; ----------------------------------------
+(display "--- 1.3 set-exp (asignación) ---")
+(newline)
 
-;; P1-06: begin con múltiples expresiones
-(test-ok "P1-06 begin multi-expresion"
-  "var x : int = 1
-   in
-   begin
-     set x := +(x, 1);
-     set x := +(x, 1);
-     set x := +(x, 1);
-     x
-   end"
-  4)
+(test-interprete "var x = 10 in begin set x = 20; x end" 20)
+(test-interprete "var x = 5 in begin set x = +(x,1); x end" 6)
+(test-interprete 
+ "var x = 0 y = 1 in begin set x = 10; set y = 20; +(x,y) end" 
+ 30)
 
-;; P1-07: uso del ambiente inicial — variables predefinidas
-(test-ok "P1-07 ambiente inicial mutable"
-  "begin
-     set a := +(a, 10);
-     a
-   end"
-  14)
+;; Error: asignar a let
+(test-error-interprete "let x = 10 in set x = 20")
 
-;; P1-08: var con múltiples ligaduras simultáneas
-(test-ok "P1-08 var multi-ligadura"
-  "var p : int = 3
-       q : int = 4
-   in
-   +(*(p, p), *(q, q))"
-  25)
+;; ----------------------------------------
+;; 1.4 begin-exp (secuenciación)
+;; ----------------------------------------
+(display "--- 1.4 begin-exp (secuenciación) ---")
+(newline)
 
-(display "\n=== PARTE 1: Intérprete — casos de error ===\n")
+(test-interprete "begin 1; 2; 3 end" 3)
+(test-interprete "var x = 0 in begin set x = 1; set x = 2; x end" 2)
+(test-interprete 
+ "var x = 10 y = 20 in begin set x = +(x,5); set y = +(y,5); +(x,y) end" 
+ 40)
 
-;; P1-E01: set sobre let — debe lanzar error
-(test-error "P1-E01 set sobre let"
-  "let m : int = 5
-   in
-   set m := +(m, 1)")
+;; ----------------------------------------
+;; 1.5 freeze-exp (congelación)
+;; ----------------------------------------
+(display "--- 1.5 freeze-exp (congelación) ---")
+(newline)
 
-;; P1-E02: set sobre variable congelada — debe lanzar error
-(test-error "P1-E02 set sobre frozen"
-  "var k : int = 10
-   in
-   begin
-     freeze k;
-     set k := 0
-   end")
+(test-interprete "var x = 10 in begin freeze x; x end" 10)
+(test-interprete 
+ "var x = 5 in begin set x = 10; freeze x; x end" 
+ 10)
 
-;; P1-E03: freeze sobre let — debe lanzar error
-(test-error "P1-E03 freeze sobre let"
-  "let m : int = 5
-   in
-   freeze m")
+;; Error: asignar después de freeze
+(test-error-interprete 
+ "var x = 10 in begin freeze x; set x = 20 end")
 
-;; ============================================================
-;; PARTE 2 — Pruebas de procedimientos con asignación
-;; ============================================================
+;; Error: congelar let
+(test-error-interprete "let x = 10 in freeze x")
 
-(display "\n=== PARTE 2: Procedimientos con clausuras y refs ===\n")
+;; Error: congelar dos veces
+(test-error-interprete 
+ "var x = 10 in begin freeze x; freeze x end")
 
-;; P2-01: clausura captura variable mutable (ejemplo 5 del enunciado)
-(test-ok "P2-01 clausura captura var mutable"
-  "var saldo : int = 100
-   in
-   let depositar : (int -> void) =
-     proc(int monto) set saldo := +(saldo, monto) end
-   in
-   begin
-     (depositar 50);
-     (depositar 25);
-     saldo
-   end"
-  175)
+;; ----------------------------------------
+;; 1.6 Ejemplos complejos de asignación
+;; ----------------------------------------
+(display "--- 1.6 Ejemplos complejos ---")
+(newline)
 
-;; P2-02: procedimiento puro que lee una var capturada sin modificarla
-(test-ok "P2-02 procedimiento lee var capturada"
-  "var base : int = 10
-   in
-   let doble : (int -> int) =
-     proc(int n) *(n, base) end
-   in
-   (doble 5)"
-  50)
+;; Factorial iterativo
+(test-interprete
+ "var n = 5 fact = 1 in begin
+    var i = 1 in begin
+      set i = 1;
+      cond
+        <=(i, n) ==> begin set fact = *(fact, i); set i = add1(i) end
+        <=(i, n) ==> begin set fact = *(fact, i); set i = add1(i) end
+        <=(i, n) ==> begin set fact = *(fact, i); set i = add1(i) end
+        <=(i, n) ==> begin set fact = *(fact, i); set i = add1(i) end
+        <=(i, n) ==> begin set fact = *(fact, i); set i = add1(i) end
+      else ==> 0
+      end;
+      fact
+    end
+  end"
+ 120)
 
-;; P2-03: procedimiento acumulador con estado compartido
-(test-ok "P2-03 acumulador con estado compartido"
-  "var total : int = 0
-   in
-   let sumar : (int -> void) =
-     proc(int v) set total := +(total, v) end
-   in
-   begin
-     (sumar 10);
-     (sumar 20);
-     (sumar 30);
-     total
-   end"
-  60)
-
-;; P2-04: parámetros formales son inmutables (set sobre parámetro debe fallar)
-(test-error "P2-E01 set sobre parámetro formal"
-  "let f : (int -> void) =
-     proc(int n) set n := +(n, 1) end
-   in
-   (f 5)")
+;; Intercambio de valores
+(test-interprete
+ "var x = 10 y = 20 in begin
+    let temp = x in begin
+      set x = y;
+      set y = temp;
+      +(x, y)
+    end
+  end"
+ 30)
 
 ;; ============================================================
-;; PARTE 3 — Pruebas del chequeador estático de tipos
+;; PARTE 2: PRUEBAS DE PROCEDIMIENTOS CON ASIGNACIÓN
 ;; ============================================================
 
-(display "\n=== PARTE 3: Chequeador — programas bien tipados ===\n")
+(display "")
+(newline)
+(display "========================================")
+(newline)
+(display "PARTE 2: PROCEDIMIENTOS CON ASIGNACIÓN")
+(newline)
+(display "========================================")
+(newline)
+(newline)
 
-;; C3-01: set bien tipado — retorna void
-(test-check-ok "C3-01 set bien tipado"
-  "var contador : int = 0
-   in
-   let incrementar : (int -> void) =
-     proc(int delta) set contador := +(contador, delta) end
-   in
-   begin
-     (incrementar 3);
-     (incrementar 4);
-     contador
-   end"
-  "int")
+;; ----------------------------------------
+;; 2.1 proc-exp y app-exp básicos
+;; ----------------------------------------
+(display "--- 2.1 Procedimientos básicos ---")
+(newline)
 
-;; C3-02: begin bien tipado — retorna el tipo de la última expresión
-(test-check-ok "C3-02 begin bien tipado"
-  "var x : int = 0
-   in
-   begin
-     set x := +(x, 5);
-     set x := *(x, 2);
-     x
-   end"
-  "int")
+(test-interprete "(proc (x) +(x, 1) 5)" 6)
+(test-interprete "(proc (x, y) +(x, y) 3 4)" 7)
+(test-interprete "let f = proc (x) *(x, x) in (f 5)" 25)
 
-;; C3-03: freeze bien tipado — retorna void
-(test-check-ok "C3-03 freeze bien tipado"
-  "var k : int = 7
-   in
-   begin
-     set k := +(k, 3);
-     freeze k;
-     k
-   end"
-  "int")
+;; ----------------------------------------
+;; 2.2 Clausuras que capturan variables mutables
+;; ----------------------------------------
+(display "--- 2.2 Captura de variables mutables ---")
+(newline)
 
-(display "\n=== PARTE 3: Chequeador — programas mal tipados ===\n")
+;; Contador con clausura
+(test-interprete
+ "var contador = 0 in
+  let inc = proc () begin set contador = add1(contador); contador end in
+  begin
+    (inc);
+    (inc);
+    (inc)
+  end"
+ 3)
 
-;; C3-E01: Error 2 — set sobre let (no mutable)
-(test-check-error "C3-E01 set sobre let (error 2)"
-  "let m : int = 5
-   in
-   set m := 10")
+;; Múltiples clausuras sobre misma variable
+(test-interprete
+ "var x = 0 in
+  let inc = proc () begin set x = add1(x); x end
+      dec = proc () begin set x = sub1(x); x end
+  in begin
+    (inc);
+    (inc);
+    (dec);
+    x
+  end"
+ 1)
 
-;; C3-E02: Error 3 — set con tipo incompatible (bool asignado a int)
-(test-check-error "C3-E02 set tipo incompatible (error 3)"
-  "var flag : bool = true
-   in
-   set flag := 0")
+;; ----------------------------------------
+;; 2.3 Parámetros son inmutables
+;; ----------------------------------------
+(display "--- 2.3 Parámetros inmutables ---")
+(newline)
 
-;; C3-E03: Error 4 — freeze sobre let (no mutable)
-(test-check-error "C3-E03 freeze sobre let (error 4)"
-  "let m : int = 5
-   in
-   freeze m")
+;; Error: asignar a parámetro
+(test-error-interprete
+ "let f = proc (x) set x = 10 in (f 5)")
 
-;; C3-E04: Error 1 — if con condición no booleana
-(test-check-error "C3-E04 if condicion no bool (error 1)"
-  "if 42 then 1 else 2")
+;; ----------------------------------------
+;; 2.4 Procedimientos de orden superior
+;; ----------------------------------------
+(display "--- 2.4 Orden superior ---")
+(newline)
 
-;; C3-E05: Error 1 — if con ramas de tipos distintos
-(test-check-error "C3-E05 if ramas tipos distintos (error 1)"
-  "if true then 1 else false")
+(test-interprete
+ "let apply = proc (f, x) (f x) in
+  let inc = proc (n) add1(n) in
+  (apply inc 5)"
+ 6)
 
-;; C3-E06: Error 5 — aplicación de un no-procedimiento
-(test-check-error "C3-E06 aplicacion de no-procedimiento (error 5)"
-  "let x : int = 5
-   in
-   (x 3)")
+(test-interprete
+ "let makeAdder = proc (x) proc (y) +(x, y) in
+  let add5 = (makeAdder 5) in
+  (add5 10)"
+ 15)
 
 ;; ============================================================
-;; Pruebas adicionales de integración
+;; PARTE 3: PRUEBAS DEL CHEQUEADOR DE TIPOS
 ;; ============================================================
 
-(display "\n=== Integración: intérprete + chequeador ===\n")
+(display "")
+(newline)
+(display "========================================")
+(newline)
+(display "PARTE 3: CHEQUEADOR DE TIPOS")
+(newline)
+(display "========================================")
+(newline)
+(newline)
 
-;; INT-01: programa que el chequeador acepta y el intérprete ejecuta correctamente
-(test-check-ok "INT-01 check acepta"
-  "var n : int = 0
-   in
-   begin
-     set n := +(n, 1);
-     n
-   end"
-  "int")
+;; ----------------------------------------
+;; 3.1 Tipos básicos
+;; ----------------------------------------
+(display "--- 3.1 Tipos básicos ---")
+(newline)
 
-(test-ok "INT-01 run ejecuta"
-  "var n : int = 0
-   in
-   begin
-     set n := +(n, 1);
-     n
-   end"
-  1)
+(test-checker "42" 'int)
+(test-checker "true" 'bool)
+(test-checker "false" 'bool)
+(test-checker "x" 'int)
 
-;; INT-02: verificación de ambiente inicial en el chequeador
-(test-check-ok "INT-02 ambiente inicial check"
-  "begin
-     set a := +(a, 1);
-     a
-   end"
-  "int")
+;; ----------------------------------------
+;; 3.2 Primitivas aritméticas
+;; ----------------------------------------
+(display "--- 3.2 Primitivas aritméticas ---")
+(newline)
 
-(display "\n=== Fin de pruebas ===\n")
+(test-checker "+(1, 2, 3)" 'int)
+(test-checker "-(10, 5)" 'int)
+(test-checker "*(2, 3, 4)" 'int)
+(test-checker "/(10, 2)" 'int)
+(test-checker "add1(5)" 'int)
+(test-checker "sub1(10)" 'int)
+
+;; Errores de tipo
+(test-error-checker "+(true, 1)")
+(test-error-checker "add1(false)")
+
+;; ----------------------------------------
+;; 3.3 Primitivas relacionales
+;; ----------------------------------------
+(display "--- 3.3 Primitivas relacionales ---")
+(newline)
+
+(test-checker ">(5, 3)" 'bool)
+(test-checker "<(2, 10)" 'bool)
+(test-checker ">=(5, 5)" 'bool)
+(test-checker "<=(3, 7)" 'bool)
+(test-checker "==(4, 4)" 'bool)
+
+;; Errores de tipo
+(test-error-checker ">(true, 1)")
+(test-error-checker "==(false, false)")
+
+;; ----------------------------------------
+;; 3.4 Primitivas lógicas
+;; ----------------------------------------
+(display "--- 3.4 Primitivas lógicas ---")
+(newline)
+
+(test-checker "not(true)" 'bool)
+(test-checker "and(true, false)" 'bool)
+(test-checker "or(false, true)" 'bool)
+
+;; Errores de tipo
+(test-error-checker "not(5)")
+(test-error-checker "and(true, 1)")
+(test-error-checker "or(0, false)")
+
+;; ----------------------------------------
+;; 3.5 if-exp
+;; ----------------------------------------
+(display "--- 3.5 if-exp ---")
+(newline)
+
+(test-checker "if true then 1 else 2" 'int)
+(test-checker "if false then true else false" 'bool)
+(test-checker "if >(x, 0) then x else 0" 'int)
+
+;; Errores de tipo
+(test-error-checker "if 1 then 2 else 3")
+(test-error-checker "if true then 1 else false")
+
+;; ----------------------------------------
+;; 3.6 let-exp y var-exp
+;; ----------------------------------------
+(display "--- 3.6 let-exp y var-exp ---")
+(newline)
+
+(test-checker "let x = 10 in x" 'int)
+(test-checker "let x = true y = false in and(x, y)" 'bool)
+(test-checker "var x = 5 in +(x, 1)" 'int)
+(test-checker "var x = 10 y = 20 in +(x, y)" 'int)
+
+;; ----------------------------------------
+;; 3.7 set-exp
+;; ----------------------------------------
+(display "--- 3.7 set-exp ---")
+(newline)
+
+(test-checker "var x = 10 in set x = 20" 'void)
+(test-checker "var x = 5 in begin set x = 10; x end" 'int)
+
+;; Error: asignar a inmutable
+(test-error-checker "let x = 10 in set x = 20")
+
+;; Error: cambio de tipo
+(test-error-checker "var x = 10 in set x = true")
+
+;; ----------------------------------------
+;; 3.8 freeze-exp
+;; ----------------------------------------
+(display "--- 3.8 freeze-exp ---")
+(newline)
+
+(test-checker "var x = 10 in freeze x" 'void)
+(test-checker "var x = 5 in begin freeze x; x end" 'int)
+
+;; Error: congelar inmutable
+(test-error-checker "let x = 10 in freeze x")
+
+;; Error: asignar después de congelar (esto lo detecta el intérprete, no el checker)
+
+;; ----------------------------------------
+;; 3.9 begin-exp
+;; ----------------------------------------
+(display "--- 3.9 begin-exp ---")
+(newline)
+
+(test-checker "begin 1; 2; 3 end" 'int)
+(test-checker "begin true; false end" 'bool)
+(test-checker "var x = 0 in begin set x = 1; x end" 'int)
+
+;; ----------------------------------------
+;; 3.10 Procedimientos
+;; ----------------------------------------
+(display "--- 3.10 Procedimientos ---")
+(newline)
+
+(test-checker "proc (x) +(x, 1)" '((int) -> int))
+(test-checker "proc (x, y) +(x, y)" '((int int) -> int))
+(test-checker "let f = proc (x) x in (f 5)" 'int)
+
+;; Error de aridad
+(test-error-checker "let f = proc (x) x in (f 1 2)")
+
+;; ----------------------------------------
+;; 3.11 Ejemplos complejos
+;; ----------------------------------------
+(display "--- 3.11 Ejemplos complejos ---")
+(newline)
+
+(test-checker
+ "var x = 10 in begin set x = +(x, 5); x end"
+ 'int)
+
+(test-checker
+ "let f = proc (n) if ==(n, 0) then 1 else *(n, 2) in (f 5)"
+ 'int)
+
+(test-checker
+ "var contador = 0 in
+  let inc = proc () begin set contador = add1(contador); contador end in
+  (inc)"
+ 'int)
+
+;; ============================================================
+;; PARTE 4: EJEMPLOS EXIGIDOS EN EL ENUNCIADO
+;; ============================================================
+
+(display "")
+(newline)
+(display "========================================")
+(newline)
+(display "PARTE 4: EJEMPLOS EXIGIDOS")
+(newline)
+(display "========================================")
+(newline)
+(newline)
+
+;; ----------------------------------------
+;; Ejemplo 4.1: var básico
+;; ----------------------------------------
+(display "--- Ejemplo 4.1: var básico ---")
+(newline)
+
+(test-interprete "var x = 10 in x" 10)
+(test-checker "var x = 10 in x" 'int)
+
+;; ----------------------------------------
+;; Ejemplo 4.2: set simple
+;; ----------------------------------------
+(display "--- Ejemplo 4.2: set simple ---")
+(newline)
+
+(test-interprete "var x = 10 in begin set x = 20; x end" 20)
+(test-checker "var x = 10 in begin set x = 20; x end" 'int)
+
+;; ----------------------------------------
+;; Ejemplo 4.3: contador con clausura
+;; ----------------------------------------
+(display "--- Ejemplo 4.3: contador ---")
+(newline)
+
+(test-interprete
+ "var x = 0 in let f = proc () begin set x = add1(x); x end in begin (f); (f); (f) end"
+ 3)
+
+(test-checker
+ "var x = 0 in let f = proc () begin set x = add1(x); x end in (f)"
+ 'int)
+
+;; ----------------------------------------
+;; Ejemplo 4.4: freeze
+;; ----------------------------------------
+(display "--- Ejemplo 4.4: freeze ---")
+(newline)
+
+(test-interprete "var x = 10 in begin freeze x; x end" 10)
+(test-checker "var x = 10 in begin freeze x; x end" 'int)
+
+;; ----------------------------------------
+;; Ejemplo 4.5: Error de asignación a let
+;; ----------------------------------------
+(display "--- Ejemplo 4.5: Error let ---")
+(newline)
+
+(test-error-interprete "let x = 10 in set x = 20")
+(test-error-checker "let x = 10 in set x = 20")
+
+;; ----------------------------------------
+;; Ejemplo 4.6: Error de cambio de tipo
+;; ----------------------------------------
+(display "--- Ejemplo 4.6: Error cambio tipo ---")
+(newline)
+
+(test-error-checker "var x = 10 in set x = true")
+
+;; ============================================================
+;; RESUMEN DE PRUEBAS
+;; ============================================================
+
+(display "")
+(newline)
+(display "========================================")
+(newline)
+(display "PRUEBAS COMPLETADAS")
+(newline)
+(display "========================================")
+(newline)
+(display "Revise los resultados arriba.")
+(newline)
+(display "Los ✓ indican pruebas exitosas.")
+(newline)
+(display "Los ✗ indican fallos que deben corregirse.")
+(newline)
