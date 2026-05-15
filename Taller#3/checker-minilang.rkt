@@ -1,7 +1,7 @@
 #lang eopl
 
 ;; ============================================================
-;; Taller 3 — Chequeador estático de tipos (MiniLang+Tipos)
+;; Taller 3 — Chequeador estático de tipos (MiniLang+Refs+Tipos)
 ;; Fundamentos de Lenguajes de Programación — 2026-1
 ;; ============================================================
 ;; Autores: JHORMAN RICARDO LOAIZA 2359710, JUAN DIEGO OSPINA 2359486,
@@ -9,269 +9,175 @@
 ;; ============================================================
 
 (require eopl)
+;; Reutilizamos gramática, datatypes, parser y utilidades del intérprete.
+;; NOTA: SLLGEN genera automáticamente un datatype llamado 'tipo' con variantes
+;;       int-type-exp, bool-type-exp, etc. (tipo SINTÁCTICO del AST).
+;;       El tipo SEMÁNTICO del chequeador se llama 'tipo-sem' para evitar
+;;       colisión de nombres al hacer (require "interprete-minilang.rkt").
+(require "interprete-minilang.rkt")
 
 ;; ============================================================
-;; ESPECIFICACIÓN LÉXICA Y GRAMATICAL (misma del intérprete)
+;; TIPOS SEMÁNTICOS DEL CHEQUEADOR
 ;; ============================================================
 
-(define especificacion-lexica
-  '(
-    (espacio-blanco (whitespace) skip)
-    (comentario ("%" (arbno (not #\newline))) skip)
-    (numero (digit (arbno digit)) number)
-    (numero ("-" digit (arbno digit)) number)
-    (numero (digit (arbno digit) "." digit (arbno digit)) number)
-    (numero ("-" digit (arbno digit) "." digit (arbno digit)) number)
-    (identificador (letter (arbno (or letter digit "?" "$"))) symbol)
-    ))
+;; define-datatype tipo-sem tipo-sem?
+;; Propósito: representa los tipos de MiniLang a nivel semántico.
+;;   int-sem, bool-sem, void-sem   (atómicos)
+;;   ref-sem(inner)                referencia a un tipo
+;;   proc-sem(params, result)      tipo de procedimiento
+(define-datatype tipo-sem tipo-sem?
+  (int-sem)
+  (bool-sem)
+  (void-sem)
+  (ref-sem
+   (inner-sem tipo-sem?))
+  (proc-sem
+   (param-sems (list-of tipo-sem?))
+   (result-sem tipo-sem?)))
 
-(define especificacion-gramatical
-  '(
-    ; Programa
-    (programa (expresion) a-program)
-
-    ; Expresiones
-    (expresion (numero) lit-exp)
-    (expresion (identificador) ident-exp)
-    (expresion ("true") true-exp)
-    (expresion ("false") false-exp)
-    (expresion
-     (primitiva "(" (separated-list expresion ",") ")")
-     prim-exp)
-    (expresion
-     ("if" expresion "then" expresion "else" expresion)
-     if-exp)
-    (expresion
-     ("let" (arbno identificador "=" expresion) "in" expresion)
-     let-exp)
-    (expresion
-     ("var" (arbno identificador "=" expresion) "in" expresion)
-     var-exp)
-    (expresion
-     ("set" identificador "=" expresion)
-     set-exp)
-    (expresion
-     ("begin" expresion (arbno ";" expresion) "end")
-     begin-exp)
-    (expresion
-     ("freeze" identificador)
-     freeze-exp)
-    (expresion
-     ("proc" "(" (separated-list identificador ",") ")" expresion)
-     proc-exp)
-    (expresion
-     ("(" expresion (arbno expresion) ")")
-     app-exp)
-    (expresion
-     ("cond" (arbno expresion "==>" expresion)
-             "else" "==>" expresion "end")
-     cond-exp)
-    (expresion
-     ("let*" (arbno identificador "=" expresion) "in" expresion)
-     let*-exp)
-    (expresion
-     ("unless" expresion "then" expresion "else" expresion)
-     unless-exp)
-
-    ; Primitivas
-    (primitiva ("+") sum-prim)
-    (primitiva ("-") minus-prim)
-    (primitiva ("*") mult-prim)
-    (primitiva ("/") div-prim)
-    (primitiva ("add1") add-prim)
-    (primitiva ("sub1") sub-prim)
-    (primitiva (">") mayor-prim)
-    (primitiva (">=") mayorigual-prim)
-    (primitiva ("<") menor-prim)
-    (primitiva ("<=") menorigual-prim)
-    (primitiva ("==") igual-prim)
-    (primitiva ("not") not-prim)
-    (primitiva ("and") and-prim)
-    (primitiva ("or") or-prim)
-    (primitiva ("min") min-prim)
-    (primitiva ("max") max-prim)
-    (primitiva ("mod") mod-prim)
-    (primitiva ("pow") pow-prim)
-    ))
-
-(sllgen:make-define-datatypes especificacion-lexica especificacion-gramatical)
-
-(define scanner
-  (sllgen:make-string-scanner especificacion-lexica especificacion-gramatical))
-
-(define parser
-  (sllgen:make-string-parser especificacion-lexica especificacion-gramatical))
-
-;; ============================================================
-;; TIPOS DEL LENGUAJE
-;; ============================================================
-
-;; tipo : int-type | bool-type | void-type | ref-type | proc-type
-;; Propósito: representa los tipos del lenguaje MiniLang.
-(define-datatype tipo tipo?
-  (int-type)
-  (bool-type)
-  (void-type)
-  (ref-type
-   (inner-type tipo?))
-  (proc-type
-   (param-types (list-of tipo?))
-   (result-type tipo?)))
-
-;; equal-types? : Tipo x Tipo -> Boolean
-;; Propósito: verifica igualdad estructural de tipos.
+;; equal-types? : tipo-sem x tipo-sem -> Boolean
+;; Propósito: compara estructuralmente dos tipos semánticos.
 (define equal-types?
   (lambda (t1 t2)
-    (cases tipo t1
-      (int-type ()
-        (cases tipo t2
-          (int-type () #t)
+    (cases tipo-sem t1
+      (int-sem  ()
+        (cases tipo-sem t2 (int-sem  () #t) (else #f)))
+      (bool-sem ()
+        (cases tipo-sem t2 (bool-sem () #t) (else #f)))
+      (void-sem ()
+        (cases tipo-sem t2 (void-sem () #t) (else #f)))
+      (ref-sem (inner1)
+        (cases tipo-sem t2
+          (ref-sem (inner2) (equal-types? inner1 inner2))
           (else #f)))
-      (bool-type ()
-        (cases tipo t2
-          (bool-type () #t)
-          (else #f)))
-      (void-type ()
-        (cases tipo t2
-          (void-type () #t)
-          (else #f)))
-      (ref-type (inner1)
-        (cases tipo t2
-          (ref-type (inner2)
-            (equal-types? inner1 inner2))
-          (else #f)))
-      (proc-type (params1 result1)
-        (cases tipo t2
-          (proc-type (params2 result2)
+      (proc-sem (params1 result1)
+        (cases tipo-sem t2
+          (proc-sem (params2 result2)
             (and (= (length params1) (length params2))
                  (andmap equal-types? params1 params2)
                  (equal-types? result1 result2)))
           (else #f))))))
 
-;; type-to-external-form : Tipo -> S-exp
-;; Propósito: convierte un tipo a forma legible.
+;; type-to-external-form : tipo-sem -> S-exp
+;; Propósito: produce la representación textual del tipo para mensajes y pruebas.
+;;   int-sem   → 'int
+;;   bool-sem  → 'bool
+;;   void-sem  → 'void
+;;   ref-sem   → (ref <t>)
+;;   proc-sem  → ((<t1> ... <tn>) -> <tr>)
 (define type-to-external-form
   (lambda (ty)
-    (cases tipo ty
-      (int-type () 'int)
-      (bool-type () 'bool)
-      (void-type () 'void)
-      (ref-type (inner)
+    (cases tipo-sem ty
+      (int-sem  () 'int)
+      (bool-sem () 'bool)
+      (void-sem () 'void)
+      (ref-sem (inner)
         (list 'ref (type-to-external-form inner)))
-      (proc-type (params result)
+      (proc-sem (params result)
         (list (map type-to-external-form params)
               '->
               (type-to-external-form result))))))
 
-;; expand-type-expression : S-exp -> Tipo
-;; Propósito: convierte una expresión S-exp en un tipo.
+;; expand-type-expression : tipo (AST SLLGEN) -> tipo-sem
+;; Propósito: convierte el tipo SINTÁCTICO generado por SLLGEN
+;;   (variantes int-type-exp, bool-type-exp, etc.) al tipo SEMÁNTICO
+;;   del chequeador (variantes int-sem, bool-sem, etc.).
 (define expand-type-expression
   (lambda (texp)
-    (cond
-      [(symbol? texp)
-       (cond
-         [(eq? texp 'int) (int-type)]
-         [(eq? texp 'bool) (bool-type)]
-         [(eq? texp 'void) (void-type)]
-         [else (eopl:error 'expand-type-expression
-                 "Tipo desconocido: ~s" texp)])]
-      [(pair? texp)
-       (cond
-         [(eq? (car texp) 'ref)
-          (ref-type (expand-type-expression (cadr texp)))]
-         [(and (list? (car texp)) (eq? (cadr texp) '->))
-          (proc-type
-           (map expand-type-expression (car texp))
-           (expand-type-expression (caddr texp)))]
-         [else (eopl:error 'expand-type-expression
-                 "Expresión de tipo inválida: ~s" texp)])]
-      [else (eopl:error 'expand-type-expression
-              "Expresión de tipo inválida: ~s" texp)])))
+    (cases tipo texp
+      (int-type-exp  () (int-sem))
+      (bool-type-exp () (bool-sem))
+      (void-type-exp () (void-sem))
+      (ref-type-exp  (inner)
+        (ref-sem (expand-type-expression inner)))
+      (proc-type-exp (param-texps result-texp)
+        (proc-sem
+         (map expand-type-expression param-texps)
+         (expand-type-expression result-texp))))))
 
 ;; ============================================================
 ;; AMBIENTE DE TIPOS
 ;; ============================================================
 
-;; El ambiente de tipos liga identificadores con (tipo, marca)
-;; donde marca ∈ {'let, 'var, 'frozen}
+;; define-datatype type-environment type-environment?
+;; Propósito: liga identificadores con (tipo-sem, marca-mutabilidad).
+;;   La marca ('let o 'var) permite rechazar set/freeze sobre inmutables.
 (define-datatype type-environment type-environment?
   (empty-tenv)
   (extended-tenv
-   (ids (list-of symbol?))
-   (types (list-of tipo?))
+   (ids    (list-of symbol?))
+   (types  (list-of tipo-sem?))
    (marcas (list-of symbol?))
-   (env type-environment?)))
+   (env    type-environment?)))
 
-;; apply-tenv : TypeEnv x Symbol -> (Tipo, Marca)
-;; Propósito: busca el tipo y marca de un identificador.
+;; apply-tenv : type-environment x Symbol -> (tipo-sem . Symbol)
+;; Propósito: retorna el par (tipo-sem, marca) ligado a id. Error si no existe.
 (define apply-tenv
   (lambda (tenv id)
     (cases type-environment tenv
       (empty-tenv ()
-        (eopl:error 'apply-tenv "Variable no ligada: ~s" id))
+        (eopl:error 'apply-tenv "Variable no ligada en ambiente de tipos: ~s" id))
       (extended-tenv (ids types marcas old-tenv)
         (letrec
             ((buscar
               (lambda (ids types marcas)
                 (cond
                   [(null? ids) (apply-tenv old-tenv id)]
-                  [(equal? (car ids) id)
-                   (cons (car types) (car marcas))]
+                  [(equal? (car ids) id) (cons (car types) (car marcas))]
                   [else (buscar (cdr ids) (cdr types) (cdr marcas))]))))
           (buscar ids types marcas))))))
 
-;; init-tenv : () -> TypeEnv
-;; Propósito: ambiente de tipos inicial con x,y,z,a,b,c : int (inmutables).
+;; init-tenv : () -> type-environment
+;; Propósito: ambiente de tipos inicial compatible con ambiente-inicial del intérprete.
+;;   x, y, z : int (marca 'let — inmutables)
+;;   a, b, c : int (marca 'var — mutables)
 (define init-tenv
   (lambda ()
     (extended-tenv
      '(x y z a b c)
-     (list (int-type) (int-type) (int-type)
-           (int-type) (int-type) (int-type))
-     '(let let let let let let)
+     (list (int-sem) (int-sem) (int-sem)
+           (int-sem) (int-sem) (int-sem))
+     '(let let let var var var)
      (empty-tenv))))
 
 ;; ============================================================
 ;; CHEQUEADOR DE TIPOS
 ;; ============================================================
 
-;; type-of-program : Programa -> Tipo
-;; Propósito: punto de entrada del chequeador.
+;; type-of-program : Programa -> tipo-sem
+;; Propósito: punto de entrada del chequeador. Retorna el tipo semántico del programa.
 (define type-of-program
   (lambda (pgm)
     (cases programa pgm
       (a-program (exp)
         (type-of exp (init-tenv))))))
 
-;; type-of : Expresion x TypeEnv -> Tipo
-;; Propósito: infiere el tipo de una expresión.
+;; type-of : Expresion x type-environment -> tipo-sem
+;; Propósito: implementa las reglas de tipado de MiniLang+Refs.
 (define type-of
   (lambda (exp tenv)
     (cases expresion exp
 
-      ;; lit-exp : números son int
-      (lit-exp (n)
-        (int-type))
+      ;; lit-exp: todo número tiene tipo int
+      (lit-exp (n) (int-sem))
 
-      ;; ident-exp : busca el tipo en el ambiente
+      ;; ident-exp: tipo semántico declarado en el ambiente
       (ident-exp (id)
-        (let ((binding (apply-tenv tenv id)))
-          (car binding)))
+        (car (apply-tenv tenv id)))
 
-      ;; true-exp / false-exp : literales bool
-      (true-exp () (bool-type))
-      (false-exp () (bool-type))
+      (true-exp  () (bool-sem))
+      (false-exp () (bool-sem))
 
-      ;; prim-exp : chequea primitivas
+      ;; prim-exp: delega en type-of-prim
       (prim-exp (prim rands)
         (type-of-prim prim rands tenv))
 
-      ;; if-exp : condición debe ser bool, ramas deben tener mismo tipo
+      ;; if-exp: condición bool, ramas del mismo tipo
       (if-exp (test then-exp else-exp)
         (let ((test-type (type-of test tenv))
               (then-type (type-of then-exp tenv))
               (else-type (type-of else-exp tenv)))
-          (if (equal-types? test-type (bool-type))
+          (if (equal-types? test-type (bool-sem))
               (if (equal-types? then-type else-type)
                   then-type
                   (eopl:error 'if-exp
@@ -282,294 +188,266 @@
                 "La condición del if debe ser bool, se obtuvo: ~s"
                 (type-to-external-form test-type)))))
 
-      ;; let-exp : ligaduras inmutables
-      (let-exp (ids rands body)
-        (let ((rand-types (map (lambda (r) (type-of r tenv)) rands)))
+      ;; let-exp: ids, tipos-decl (AST sintáctico), rands, body
+      ;;   Verifica tipo declarado == tipo inferido.
+      ;;   Extiende tenv con (tipo-sem, 'let).
+      (let-exp (ids tipos-decl rands body)
+        (let ((rand-types (map (lambda (r) (type-of r tenv)) rands))
+              (decl-types (map expand-type-expression tipos-decl)))
+          (for-each
+           (lambda (decl inf id)
+             (if (not (equal-types? decl inf))
+                 (eopl:error 'let-exp
+                   "Tipo declarado ~s no coincide con tipo inferido ~s en ~s"
+                   (type-to-external-form decl)
+                   (type-to-external-form inf)
+                   id)
+                 (void-value)))
+           decl-types rand-types ids)
           (type-of body
-            (extended-tenv ids rand-types
+            (extended-tenv ids decl-types
               (map (lambda (x) 'let) ids) tenv))))
 
-      ;; var-exp : ligaduras mutables
-      (var-exp (ids rands body)
-        (let ((rand-types (map (lambda (r) (type-of r tenv)) rands)))
+      ;; var-exp: igual que let-exp pero marca 'var (mutable)
+      (var-exp (ids tipos-decl rands body)
+        (let ((rand-types (map (lambda (r) (type-of r tenv)) rands))
+              (decl-types (map expand-type-expression tipos-decl)))
+          (for-each
+           (lambda (decl inf id)
+             (if (not (equal-types? decl inf))
+                 (eopl:error 'var-exp
+                   "Tipo declarado ~s no coincide con tipo inferido ~s en ~s"
+                   (type-to-external-form decl)
+                   (type-to-external-form inf)
+                   id)
+                 (void-value)))
+           decl-types rand-types ids)
           (type-of body
-            (extended-tenv ids rand-types
+            (extended-tenv ids decl-types
               (map (lambda (x) 'var) ids) tenv))))
 
-      ;; set-exp : asignación
+      ;; set-exp: solo sobre 'var, mismo tipo, retorna void-sem
       (set-exp (id rhs)
-        (let ((binding (apply-tenv tenv id)))
-          (let ((id-type (car binding))
-                (marca (cdr binding))
-                (rhs-type (type-of rhs tenv)))
-            (cond
-              [(eq? marca 'let)
-               (eopl:error 'set-exp
-                 "No se puede asignar a identificador inmutable: ~s" id)]
-              [(eq? marca 'frozen)
-               (eopl:error 'set-exp
-                 "No se puede asignar a identificador congelado: ~s" id)]
-              [(not (equal-types? id-type rhs-type))
-               (eopl:error 'set-exp
-                 "Cambio de tipo no permitido en ~s: ~s -> ~s"
-                 id
-                 (type-to-external-form id-type)
-                 (type-to-external-form rhs-type))]
-              [else (void-type)]))))
+        (let* ((binding  (apply-tenv tenv id))
+               (id-type  (car binding))
+               (marca    (cdr binding))
+               (rhs-type (type-of rhs tenv)))
+          (cond
+            [(eq? marca 'let)
+             (eopl:error 'set-exp
+               "No se puede asignar a identificador inmutable (let): ~s" id)]
+            [(eq? marca 'frozen)
+             (eopl:error 'set-exp
+               "No se puede asignar a identificador congelado: ~s" id)]
+            [(not (equal-types? id-type rhs-type))
+             (eopl:error 'set-exp
+               "Cambio de tipo no permitido en ~s: ~s -> ~s"
+               id
+               (type-to-external-form id-type)
+               (type-to-external-form rhs-type))]
+            [else (void-sem)])))
 
-      ;; begin-exp : secuencia retorna tipo de última expresión
+      ;; begin-exp: chequea todas, retorna tipo de la última expresión
       (begin-exp (first rest)
-        (let ((first-type (type-of first tenv)))
-          (if (null? rest)
-              first-type
-              (letrec ((check-sequence
+        (if (null? rest)
+            (type-of first tenv)
+            (begin
+              (type-of first tenv)
+              (letrec ((check-seq
                         (lambda (exps)
                           (if (null? (cdr exps))
                               (type-of (car exps) tenv)
                               (begin
                                 (type-of (car exps) tenv)
-                                (check-sequence (cdr exps)))))))
-                (check-sequence rest)))))
+                                (check-seq (cdr exps)))))))
+                (check-seq rest)))))
 
-      ;; freeze-exp : congela variable mutable
+      ;; freeze-exp: solo sobre 'var, retorna void-sem
       (freeze-exp (id)
-        (let ((binding (apply-tenv tenv id)))
-          (let ((marca (cdr binding)))
-            (cond
-              [(eq? marca 'var)
-               (void-type)]
-              [(eq? marca 'frozen)
-               (eopl:error 'freeze-exp
-                 "La variable ~s ya está congelada" id)]
-              [(eq? marca 'let)
-               (eopl:error 'freeze-exp
-                 "No se puede congelar identificador inmutable: ~s" id)]
-              [else (eopl:error 'freeze-exp
-                      "Marca desconocida: ~s" marca)]))))
+        (let* ((binding (apply-tenv tenv id))
+               (marca   (cdr binding)))
+          (cond
+            [(eq? marca 'var)    (void-sem)]
+            [(eq? marca 'frozen)
+             (eopl:error 'freeze-exp
+               "La variable ~s ya está congelada" id)]
+            [(eq? marca 'let)
+             (eopl:error 'freeze-exp
+               "No se puede congelar identificador inmutable (let): ~s" id)]
+            [else
+             (eopl:error 'freeze-exp "Marca desconocida: ~s" marca)])))
 
-      ;; proc-exp : creación de procedimiento
-      (proc-exp (params body)
-        ;; Asumimos que los parámetros son todos int por simplicidad
-        ;; En una versión completa, necesitaríamos anotaciones de tipos
-        (let ((param-types (map (lambda (x) (int-type)) params)))
-          (let ((body-type
-                 (type-of body
-                   (extended-tenv params param-types
-                     (map (lambda (x) 'let) params) tenv))))
-            (proc-type param-types body-type))))
+      ;; proc-exp: tipos-params (AST sintáctico), ids, body
+      ;;   Parámetros con marca 'let (inmutables dentro del cuerpo).
+      (proc-exp (tipos-params ids body)
+        (let* ((param-sems (map expand-type-expression tipos-params))
+               (body-type
+                (type-of body
+                  (extended-tenv ids param-sems
+                    (map (lambda (x) 'let) ids) tenv))))
+          (proc-sem param-sems body-type)))
 
-      ;; app-exp : aplicación de procedimiento
+      ;; app-exp: operador debe ser proc-sem, aridad y tipos correctos
       (app-exp (rator rands)
         (let ((rator-type (type-of rator tenv))
               (rand-types (map (lambda (r) (type-of r tenv)) rands)))
-          (cases tipo rator-type
-            (proc-type (param-types result-type)
-              (if (= (length param-types) (length rand-types))
-                  (if (andmap equal-types? param-types rand-types)
-                      result-type
+          (cases tipo-sem rator-type
+            (proc-sem (param-sems result-sem-val)
+              (if (= (length param-sems) (length rand-types))
+                  (if (andmap equal-types? param-sems rand-types)
+                      result-sem-val
                       (eopl:error 'app-exp
-                        "Tipos de argumentos incorrectos"))
+                        "Tipos de argumentos incorrectos en aplicación"))
                   (eopl:error 'app-exp
                     "Aridad incorrecta: esperaba ~s, recibió ~s"
-                    (length param-types) (length rand-types))))
+                    (length param-sems) (length rand-types))))
             (else
              (eopl:error 'app-exp
                "El operador debe ser un procedimiento, se obtuvo: ~s"
                (type-to-external-form rator-type))))))
 
-      ;; cond-exp : condicional múltiple
+      ;; cond-exp: todas las ramas deben tener el mismo tipo
       (cond-exp (conditions actions default)
-        (letrec ((check-conditions
+        (letrec ((check-conds
                   (lambda (conds acts)
                     (if (null? conds)
                         (type-of default tenv)
-                        (let ((cond-type (type-of (car conds) tenv)))
-                          (if (equal-types? cond-type (bool-type))
-                              (let ((act-type (type-of (car acts) tenv))
-                                    (rest-type (check-conditions (cdr conds) (cdr acts))))
-                                (if (equal-types? act-type rest-type)
-                                    act-type
+                        (let ((ct (type-of (car conds) tenv)))
+                          (if (equal-types? ct (bool-sem))
+                              (let ((at (type-of (car acts) tenv))
+                                    (rt (check-conds (cdr conds) (cdr acts))))
+                                (if (equal-types? at rt)
+                                    at
                                     (eopl:error 'cond-exp
                                       "Todas las ramas deben tener el mismo tipo")))
                               (eopl:error 'cond-exp
-                                "Condición debe ser bool")))))))
-          (check-conditions conditions actions)))
+                                "Condición debe ser bool, se obtuvo: ~s"
+                                (type-to-external-form ct))))))))
+          (check-conds conditions actions)))
 
-      ;; let*-exp : ligaduras secuenciales
-      (let*-exp (ids rands body)
-        (letrec ((extend-tenv-seq
-                  (lambda (ids rands tenv-actual)
+      ;; let*-exp: secuencial, cada id se agrega al tenv antes del siguiente
+      (let*-exp (ids tipos-decl rands body)
+        (letrec ((ext-seq
+                  (lambda (ids tipos rands tenv-act)
                     (if (null? ids)
-                        (type-of body tenv-actual)
-                        (let ((val-type (type-of (car rands) tenv-actual)))
-                          (extend-tenv-seq
-                           (cdr ids)
-                           (cdr rands)
-                           (extended-tenv (list (car ids))
-                                         (list val-type)
-                                         '(let)
-                                         tenv-actual)))))))
-          (extend-tenv-seq ids rands tenv)))
+                        (type-of body tenv-act)
+                        (let* ((vt   (type-of (car rands) tenv-act))
+                               (decl (expand-type-expression (car tipos))))
+                          (if (not (equal-types? decl vt))
+                              (eopl:error 'let*-exp
+                                "Tipo declarado ~s no coincide con inferido ~s en ~s"
+                                (type-to-external-form decl)
+                                (type-to-external-form vt)
+                                (car ids))
+                              (ext-seq
+                               (cdr ids) (cdr tipos) (cdr rands)
+                               (extended-tenv (list (car ids)) (list decl)
+                                             '(let) tenv-act))))))))
+          (ext-seq ids tipos-decl rands tenv)))
 
-      ;; unless-exp : condicional inverso
+      ;; unless-exp: condición bool, ramas del mismo tipo
       (unless-exp (test usual except)
-        (let ((test-type (type-of test tenv))
-              (usual-type (type-of usual tenv))
+        (let ((test-type   (type-of test tenv))
+              (usual-type  (type-of usual tenv))
               (except-type (type-of except tenv)))
-          (if (equal-types? test-type (bool-type))
+          (if (equal-types? test-type (bool-sem))
               (if (equal-types? usual-type except-type)
                   usual-type
                   (eopl:error 'unless-exp
-                    "Ambas ramas deben tener el mismo tipo"))
+                    "Ambas ramas deben tener el mismo tipo: ~s vs ~s"
+                    (type-to-external-form usual-type)
+                    (type-to-external-form except-type)))
               (eopl:error 'unless-exp
-                "La condición debe ser bool"))))
+                "La condición debe ser bool, se obtuvo: ~s"
+                (type-to-external-form test-type)))))
       )))
 
 ;; ============================================================
 ;; CHEQUEO DE PRIMITIVAS
 ;; ============================================================
 
-;; type-of-prim : Primitiva x List<Expresion> x TypeEnv -> Tipo
-;; Propósito: chequea tipos de primitivas y retorna su tipo de resultado.
+;; type-of-prim : Primitiva x List<Expresion> x type-environment -> tipo-sem
+;; Propósito: infiere tipos de argumentos y verifica signaturas de cada primitiva.
 (define type-of-prim
   (lambda (prim rands tenv)
     (let ((arg-types (map (lambda (r) (type-of r tenv)) rands)))
       (cases primitiva prim
-        
-        ;; Aritméticas n-arias: requieren int, retornan int
-        (sum-prim ()
-          (check-all-int arg-types "suma")
-          (int-type))
-        
-        (minus-prim ()
-          (check-all-int arg-types "resta")
-          (int-type))
-        
-        (mult-prim ()
-          (check-all-int arg-types "multiplicación")
-          (int-type))
-        
-        (div-prim ()
-          (check-all-int arg-types "división")
-          (int-type))
-        
-        ;; Aritméticas unarias
-        (add-prim ()
-          (check-unary-int arg-types "add1")
-          (int-type))
-        
-        (sub-prim ()
-          (check-unary-int arg-types "sub1")
-          (int-type))
-        
-        ;; Relacionales: requieren int, retornan bool
-        (mayor-prim ()
-          (check-all-int arg-types ">")
-          (bool-type))
-        
-        (mayorigual-prim ()
-          (check-all-int arg-types ">=")
-          (bool-type))
-        
-        (menor-prim ()
-          (check-all-int arg-types "<")
-          (bool-type))
-        
-        (menorigual-prim ()
-          (check-all-int arg-types "<=")
-          (bool-type))
-        
-        (igual-prim ()
-          (check-all-int arg-types "==")
-          (bool-type))
-        
-        ;; Lógicas unarias
-        (not-prim ()
-          (check-unary-bool arg-types "not")
-          (bool-type))
-        
-        ;; Lógicas binarias
-        (and-prim ()
-          (check-binary-bool arg-types "and")
-          (bool-type))
-        
-        (or-prim ()
-          (check-binary-bool arg-types "or")
-          (bool-type))
-        
-        ;; Min/max: requieren int, retornan int
-        (min-prim ()
-          (check-all-int arg-types "min")
-          (int-type))
-        
-        (max-prim ()
-          (check-all-int arg-types "max")
-          (int-type))
-        
-        ;; Mod y pow: binarias, requieren int, retornan int
-        (mod-prim ()
-          (check-binary-int arg-types "mod")
-          (int-type))
-        
-        (pow-prim ()
-          (check-binary-int arg-types "pow")
-          (int-type))
+        (sum-prim        () (check-all-int     arg-types "+")   (int-sem))
+        (minus-prim      () (check-all-int     arg-types "-")   (int-sem))
+        (mult-prim       () (check-all-int     arg-types "*")   (int-sem))
+        (div-prim        () (check-all-int     arg-types "/")   (int-sem))
+        (add-prim        () (check-unary-int   arg-types "add1")(int-sem))
+        (sub-prim        () (check-unary-int   arg-types "sub1")(int-sem))
+        (mayor-prim      () (check-all-int     arg-types ">")   (bool-sem))
+        (mayorigual-prim () (check-all-int     arg-types ">=")  (bool-sem))
+        (menor-prim      () (check-all-int     arg-types "<")   (bool-sem))
+        (menorigual-prim () (check-all-int     arg-types "<=")  (bool-sem))
+        (igual-prim      () (check-all-int     arg-types "==")  (bool-sem))
+        (not-prim        () (check-unary-bool  arg-types "not") (bool-sem))
+        (and-prim        () (check-binary-bool arg-types "and") (bool-sem))
+        (or-prim         () (check-binary-bool arg-types "or")  (bool-sem))
+        (min-prim        () (check-all-int     arg-types "min") (int-sem))
+        (max-prim        () (check-all-int     arg-types "max") (int-sem))
+        (mod-prim        () (check-binary-int  arg-types "mod") (int-sem))
+        (pow-prim        () (check-binary-int  arg-types "pow") (int-sem))
         ))))
 
-;; Funciones auxiliares para chequeo de tipos de primitivas
+;; ============================================================
+;; AUXILIARES DE CHEQUEO
+;; ============================================================
 
-;; check-all-int : List<Tipo> x String -> Void
-;; Propósito: verifica que todos los tipos sean int.
+;; check-all-int : List<tipo-sem> x String -> Void
+;; Propósito: verifica que todos los tipos sean int-sem. Error si no.
 (define check-all-int
   (lambda (types op-name)
-    (if (andmap (lambda (t) (equal-types? t (int-type))) types)
-        (void)
+    (if (andmap (lambda (t) (equal-types? t (int-sem))) types)
+        (void-value)
         (eopl:error 'type-of-prim
           "~a requiere argumentos de tipo int" op-name))))
 
-;; check-unary-int : List<Tipo> x String -> Void
-;; Propósito: verifica aridad 1 y tipo int.
+;; check-unary-int : List<tipo-sem> x String -> Void
+;; Propósito: verifica exactamente 1 argumento de tipo int-sem.
 (define check-unary-int
   (lambda (types op-name)
     (if (= (length types) 1)
-        (if (equal-types? (car types) (int-type))
-            (void)
+        (if (equal-types? (car types) (int-sem))
+            (void-value)
             (eopl:error 'type-of-prim
               "~a requiere argumento de tipo int" op-name))
         (eopl:error 'type-of-prim
           "~a requiere exactamente 1 argumento" op-name))))
 
-;; check-binary-int : List<Tipo> x String -> Void
-;; Propósito: verifica aridad 2 y tipos int.
+;; check-binary-int : List<tipo-sem> x String -> Void
+;; Propósito: verifica exactamente 2 argumentos de tipo int-sem.
 (define check-binary-int
   (lambda (types op-name)
     (if (= (length types) 2)
-        (if (andmap (lambda (t) (equal-types? t (int-type))) types)
-            (void)
+        (if (andmap (lambda (t) (equal-types? t (int-sem))) types)
+            (void-value)
             (eopl:error 'type-of-prim
               "~a requiere dos argumentos de tipo int" op-name))
         (eopl:error 'type-of-prim
           "~a requiere exactamente 2 argumentos" op-name))))
 
-;; check-unary-bool : List<Tipo> x String -> Void
-;; Propósito: verifica aridad 1 y tipo bool.
+;; check-unary-bool : List<tipo-sem> x String -> Void
+;; Propósito: verifica exactamente 1 argumento de tipo bool-sem.
 (define check-unary-bool
   (lambda (types op-name)
     (if (= (length types) 1)
-        (if (equal-types? (car types) (bool-type))
-            (void)
+        (if (equal-types? (car types) (bool-sem))
+            (void-value)
             (eopl:error 'type-of-prim
               "~a requiere argumento de tipo bool" op-name))
         (eopl:error 'type-of-prim
           "~a requiere exactamente 1 argumento" op-name))))
 
-;; check-binary-bool : List<Tipo> x String -> Void
-;; Propósito: verifica aridad 2 y tipos bool.
+;; check-binary-bool : List<tipo-sem> x String -> Void
+;; Propósito: verifica exactamente 2 argumentos de tipo bool-sem.
 (define check-binary-bool
   (lambda (types op-name)
     (if (= (length types) 2)
-        (if (andmap (lambda (t) (equal-types? t (bool-type))) types)
-            (void)
+        (if (andmap (lambda (t) (equal-types? t (bool-sem))) types)
+            (void-value)
             (eopl:error 'type-of-prim
               "~a requiere dos argumentos de tipo bool" op-name))
         (eopl:error 'type-of-prim
@@ -579,19 +457,16 @@
 ;; INTERFAZ DE USUARIO
 ;; ============================================================
 
-;; check-program : String -> Tipo
-;; Propósito: parsea y chequea un programa completo.
+;; check-program : String -> tipo-sem
+;; Propósito: parsea y chequea estáticamente un programa fuente.
 (define check-program
   (lambda (str)
-    (let ((pgm (parser str)))
-      (type-of-program pgm))))
+    (type-of-program (parser str))))
 
-;; run-check : String -> String
-;; Propósito: wrapper para mostrar el tipo de forma legible.
+;; run-check : String -> S-exp
+;; Propósito: retorna la forma externa del tipo semántico (para pruebas).
 (define run-check
   (lambda (str)
-    (let ((tipo (check-program str)))
-      (type-to-external-form tipo))))
+    (type-to-external-form (check-program str))))
 
-;; Exportar todas las definiciones
 (provide (all-defined-out))
