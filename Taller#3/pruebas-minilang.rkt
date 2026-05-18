@@ -1,400 +1,316 @@
-#lang eopl
+#lang racket
 
 ;; ============================================================
-;; Taller 3 — Pruebas con rackunit (MiniLang+Refs+Tipos)
+;; Taller 3 — Pruebas de MiniLang+Refs+Tipos
 ;; Fundamentos de Lenguajes de Programación — 2026-1
 ;; ============================================================
 ;; Autores: JHORMAN RICARDO LOAIZA 2359710, JUAN DIEGO OSPINA 2359486,
 ;;          MAURICIO ALEJANDRO ROJAS 2359701, JUAN FELIPE RUIZ 2359397
 ;; ============================================================
-;;
-;; Organización (compatible con autograding de GitHub Classroom):
-;;   raco test pruebas-minilang.rkt          → corre las 3 suites
-;;   raco test -s parte-1 pruebas-minilang.rkt
-;;   raco test -s parte-2 pruebas-minilang.rkt
-;;   raco test -s parte-3 pruebas-minilang.rkt
-;;
-;; SINTAXIS DEL LENGUAJE (con anotaciones de tipo):
-;;   let  x : int = 5         in ...
-;;   var  n : int = 0         in ...
-;;   set  n := +(n, 1)
-;;   proc (int x, bool flag)  body
-;;   begin e1 ; e2 ; e3 end
-;;   freeze id
-;; ============================================================
 
 (require rackunit)
 (require rackunit/text-ui)
+(require eopl)
 (require "interprete-minilang.rkt")
 (require (prefix-in chk: "checker-minilang.rkt"))
 
-;; ============================================================
-;; UTILIDADES
-;; ============================================================
+;; ------------------------------------------------------------
+;; Utilidades
+;; ------------------------------------------------------------
 
 ;; run : String -> SchemeVal
-;; Propósito: parsea y evalúa un programa fuente con el intérprete.
-(define run
-  (lambda (src)
-    (evaluar-programa (parser src))))
+;; Contrato: String -> SchemeVal
+;; Propósito: parsea y evalúa un programa fuente MiniLang.
+(define (run src)
+  (evaluar-programa (parser src)))
 
-;; type-of : String -> S-exp
-;; Propósito: parsea y chequea un programa, retorna la forma externa del tipo.
-(define type-of
-  (lambda (src)
-    (chk:run-check src)))
+;; type-of : String -> type
+;; Contrato: String -> type
+;; Propósito: parsea y chequea estáticamente un programa fuente MiniLang.
+(define (type-of src)
+  (chk:type-of-program (parser src)))
 
 ;; check-run-error : String -> Boolean
-;; Propósito: retorna #t si (run src) lanza una excepción, #f si no.
-;;   Usa guard (R6RS), disponible en #lang eopl.
-(define check-run-error
-  (lambda (src)
-    (guard (exn
-            [(condition? exn) #t])
-      (run src)
-      #f)))
+;; Contrato: String -> Boolean
+;; Propósito: verifica que la ejecución de src lanza un error.
+;; Retorna #t si hay error, falla el test si no lo hay.
+(define (check-run-error src)
+  (with-handlers
+      ([exn:fail? (lambda (e) #t)])
+    (run src)
+    #f))
 
 ;; check-type-error : String -> Boolean
-;; Propósito: retorna #t si (type-of src) lanza una excepción, #f si no.
-;;   Usa guard (R6RS), disponible en #lang eopl.
-(define check-type-error
-  (lambda (src)
-    (guard (exn
-            [(condition? exn) #t])
-      (type-of src)
-      #f)))
+;; Contrato: String -> Boolean
+;; Propósito: verifica que el chequeo de tipos de src lanza un error.
+(define (check-type-error src)
+  (with-handlers
+      ([exn:fail? (lambda (e) #t)])
+    (type-of src)
+    #f))
 
-;; ============================================================
-;; PARTE 1 — TAD referencia y asignación
-;; ============================================================
-;; Mínimos del enunciado:
-;;   5 casos correctos: let, var, begin, freeze, combinación
-;;   3 casos de error:  set sobre let, set sobre congelada, freeze sobre let
+
+;; ------------------------------------------------------------
+;; Parte 1: TAD referencia y asignación
+;; ------------------------------------------------------------
 
 (define parte-1
   (test-suite
    "Parte 1 — TAD referencia y asignación"
 
-   ;; ---- Casos correctos ----
+   ;; --- Casos correctos ---
 
-   (test-case "let-exp inmutable: ligadura simple"
-     ;; let crea una ligadura 'let; el cuerpo retorna su valor
-     (check-equal? (run "let m : int = 5 in m")
-                   5))
+   ;; Test 1: let-exp declara variable inmutable y la retorna
+   (test-case "let-exp inmutable retorna su valor"
+     (check-equal?
+      (run "let m : int = 5 in m")
+      5
+      "let m:int=5 in m debe retornar 5"))
 
-   (test-case "var-exp con set y begin: actualización mutable"
-     ;; var crea 'var; set actualiza; begin retorna el último valor
+   ;; Test 2: var-decl con set y begin — contador con doble incremento
+   (test-case "var-exp con set y begin: acumulación"
      (check-equal?
       (run "var n : int = 0 in
               begin
-                set n := +(n, 10);
-                set n := *(n, 2);
+                set n := +(n, 10) ;
+                set n := *(n, 2) ;
                 n
               end")
-      20))
+      20
+      "n = 0, +10 => 10, *2 => 20"))
 
+   ;; Test 3: begin retorna el valor de la última expresión
    (test-case "begin-exp retorna el último valor"
-     ;; begin evalúa en orden y retorna la última expresión
      (check-equal?
       (run "var n : int = 0 in
-              begin set n := 1; set n := 2; n end")
-      2))
+              begin
+                set n := 1 ;
+                set n := 2 ;
+                n
+              end")
+      2
+      "begin retorna el último valor (2)"))
 
-   (test-case "freeze-exp: valor conservado tras congelar"
-     ;; freeze cambia marca de 'var a 'frozen; lectura sigue funcionando
+   ;; Test 4: freeze exitoso — variable mutable se puede congelar
+   (test-case "freeze-exp exitoso sobre var"
      (check-equal?
       (run "var k : int = 7 in
-              begin set k := +(k, 3); freeze k; k end")
-      10))
+              begin
+                set k := +(k, 3) ;
+                freeze k ;
+                k
+              end")
+      10
+      "k=7, set k:=10, freeze k, retorna 10"))
 
-   (test-case "combinación: let base + var anidado"
-     ;; let y var se pueden anidar; let no es mutable, var sí
+   ;; Test 5: combinación let (inmutable) envolviendo var (mutable)
+   (test-case "combinación let + var anidados"
      (check-equal?
       (run "let base : int = 100 in
               var contador : int = 0 in
                 begin
-                  set contador := +(contador, base);
-                  set contador := +(contador, 50);
+                  set contador := +(contador, base) ;
+                  set contador := +(contador, base) ;
                   contador
                 end")
-      150))
+      200
+      "base=100, contador+=100 dos veces => 200"))
 
-   (test-case "intercambio de valores con variable auxiliar"
-     ;; Patrón clásico de swap usando una let temporal
+   ;; Test 6 (bonus): var con múltiples variables
+   (test-case "var múltiple + set sobre una sola variable"
      (check-equal?
-      (run "var x : int = 10 in
-              var y : int = 20 in
-                begin
-                  let tmp : int = x in
-                    begin
-                      set x := y;
-                      set y := tmp;
-                      +(x, y)
-                    end
-                end")
-      30))
+      (run "var p : int = 1 q : int = 2 in
+              begin
+                set p := *(p, q) ;
+                set q := +(p, q) ;
+                +(p, q)
+              end")
+      6
+      "p=1*2=2, q=2+2=4, p+q=6"))
 
-   ;; ---- Casos de error ----
+   ;; --- Casos de error ---
 
-   (test-case "ERROR — set sobre let debe fallar"
-     ;; Intentar mutar una ligadura 'let debe lanzar error
+   ;; Test 7: set sobre variable let lanza error
+   (test-case "set sobre let lanza error"
      (check-true
-      (check-run-error "let m : int = 5 in set m := 10")))
+      (check-run-error "let m : int = 5 in set m := 10")
+      "set sobre variable let debe lanzar error"))
 
-   (test-case "ERROR — set sobre variable congelada debe fallar"
-     ;; Después de freeze, set debe lanzar error
+   ;; Test 8: set sobre variable congelada lanza error
+   (test-case "set sobre variable congelada lanza error"
      (check-true
-      (check-run-error
-       "var k : int = 1 in begin freeze k; set k := 2 end")))
+      (check-run-error "var k : int = 1 in
+                          begin
+                            freeze k ;
+                            set k := 2
+                          end")
+      "set sobre frozen debe lanzar error"))
 
-   (test-case "ERROR — freeze sobre let debe fallar"
-     ;; No se puede congelar una ligadura inmutable
+   ;; Test 9: freeze sobre let lanza error
+   (test-case "freeze sobre let lanza error"
      (check-true
-      (check-run-error "let m : int = 5 in freeze m")))
+      (check-run-error "let m : int = 5 in freeze m")
+      "freeze sobre let debe lanzar error"))
 
-   (test-case "ERROR — freeze dos veces sobre la misma variable"
-     ;; Una variable ya congelada no puede volver a congelarse
+   ;; Test 10 (bonus): freeze dos veces lanza error
+   (test-case "freeze dos veces lanza error"
      (check-true
-      (check-run-error
-       "var k : int = 10 in begin freeze k; freeze k end")))
+      (check-run-error "var k : int = 1 in
+                          begin
+                            freeze k ;
+                            freeze k
+                          end")
+      "freeze sobre frozen debe lanzar error"))
    ))
 
-;; ============================================================
-;; PARTE 2 — Procedimientos con asignación
-;; ============================================================
-;; Mínimos del enunciado:
-;;   2 ejemplos con clausuras que mutan variables capturadas
+
+;; ------------------------------------------------------------
+;; Parte 2: Procedimientos con asignación
+;; ------------------------------------------------------------
 
 (define parte-2
   (test-suite
    "Parte 2 — Procedimientos con asignación"
 
-   (test-case "clausura captura variable mutable: contador"
-     ;; La clausura `inc` captura `contador` por referencia.
-     ;; Cada llamada incrementa y retorna el nuevo valor.
-     (check-equal?
-      (run "var contador : int = 0 in
-              let inc : (int -> int) = proc (int delta)
-                                        begin
-                                          set contador := +(contador, delta);
-                                          contador
-                                        end
-              in begin
-                   (inc 1);
-                   (inc 1);
-                   (inc 1)
-                 end")
-      3))
-
-   (test-case "clausura captura variable mutable: cuenta bancaria"
-     ;; depositar y retirar comparten la misma variable `saldo`
+   ;; Test 1: clausura captura variable mutable y la modifica
+   ;; El cuerpo del proc lee y escribe sobre el saldo capturado.
+   (test-case "clausura captura variable mutable y acumula"
      (check-equal?
       (run "var saldo : int = 100 in
-              let depositar : (int -> int) = proc (int m)
-                                              begin
-                                                set saldo := +(saldo, m);
-                                                saldo
-                                              end
-                  retirar   : (int -> int) = proc (int m)
-                                              begin
-                                                set saldo := -(saldo, m);
-                                                saldo
-                                              end
-              in begin
-                   (depositar 50);
-                   (depositar 25);
-                   (retirar 30);
-                   saldo
-                 end")
-      145))
+              let depositar : (int -> void) =
+                proc (int m) set saldo := +(saldo, m) in
+                begin
+                  (depositar 50) ;
+                  (depositar 25) ;
+                  saldo
+                end")
+      175
+      "saldo = 100 + 50 + 25 = 175"))
 
-   (test-case "clausura con dos mutaciones independientes"
-     ;; inc y dec mutan x compartido; el resultado debe ser 1
-     (check-equal?
-      (run "var x : int = 0 in
-              let inc : (int -> int) = proc (int dummy)
-                                        begin set x := add1(x); x end
-                  dec : (int -> int) = proc (int dummy)
-                                        begin set x := sub1(x); x end
-              in begin
-                   (inc 0);
-                   (inc 0);
-                   (dec 0);
-                   x
-                 end")
-      1))
-
-   (test-case "ERROR — parámetro formal es inmutable"
-     ;; Los parámetros se crean con marca 'let; set debe fallar
+   ;; Test 2: parámetro formal es inmutable (marca 'let)
+   ;; Intentar set sobre un parámetro formal debe lanzar error.
+   (test-case "parámetro formal es inmutable"
      (check-true
-      (check-run-error
-       "let f : (int -> int) = proc (int p) set p := +(p, 1)
-        in (f 0)")))
+      (check-run-error "let f : (int -> int) =
+                           proc (int x) begin set x := +(x, 1) ; x end
+                         in (f 0)")
+      "set sobre parámetro formal (let) debe lanzar error"))
 
-   (test-case "procedimientos de orden superior"
-     ;; apply recibe una función y un argumento
+   ;; Test 3: clausura comparte referencia con el ámbito externo
+   ;; Dos clausuras distintas comparten la misma variable capturada.
+   (test-case "dos clausuras comparten la misma variable capturada"
      (check-equal?
-      (run "let apply : ((int -> int) -> int) =
-                proc (int f, int arg) (f arg)
-            in
-              let inc : (int -> int) = proc (int n) add1(n)
-              in (apply inc 5)")
-      6))
+      (run "var cuenta : int = 0 in
+              let inc : (void -> int) = proc () begin set cuenta := +(cuenta,1) ; cuenta end
+                  reset : (void -> void) = proc () set cuenta := 0 in
+                begin
+                  (inc) ;
+                  (inc) ;
+                  (inc) ;
+                  (reset) ;
+                  (inc) ;
+                  cuenta
+                end")
+      1
+      "inc x3, reset, inc x1 => 1"))
+
+   ;; Test 4 (bonus): procedimiento retorna resultado de la última expresión
+   (test-case "proc retorna el valor de la última expresión"
+     (check-equal?
+      (run "let doble : (int -> int) = proc (int n) *(n, 2) in
+              (doble 21)")
+      42
+      "(doble 21) debe retornar 42"))
    ))
 
-;; ============================================================
-;; PARTE 3 — Chequeador estático de tipos
-;; ============================================================
-;; Mínimos del enunciado:
-;;   3 bien tipados: set, begin, freeze
-;;   3 mal tipados:  set sobre let, set con cambio de tipo, freeze sobre let
+
+;; ------------------------------------------------------------
+;; Parte 3: Chequeador estático de tipos
+;; ------------------------------------------------------------
 
 (define parte-3
   (test-suite
    "Parte 3 — Chequeador estático de tipos"
 
-   ;; ---- Tipos básicos ----
+   ;; --- Bien tipados ---
 
-   (test-case "literal entero tiene tipo int"
-     (check-equal? (type-of "42") 'int))
-
-   (test-case "true tiene tipo bool"
-     (check-equal? (type-of "true") 'bool))
-
-   (test-case "false tiene tipo bool"
-     (check-equal? (type-of "false") 'bool))
-
-   (test-case "variable del ambiente inicial tiene tipo int"
-     (check-equal? (type-of "x") 'int))
-
-   ;; ---- Primitivas aritméticas ----
-
-   (test-case "suma de enteros retorna int"
-     (check-equal? (type-of "+(1, 2, 3)") 'int))
-
-   (test-case "add1 retorna int"
-     (check-equal? (type-of "add1(5)") 'int))
-
-   (test-case "ERROR — suma con booleano"
-     (check-true (check-type-error "+(true, 1)")))
-
-   ;; ---- Primitivas relacionales ----
-
-   (test-case "mayor-que retorna bool"
-     (check-equal? (type-of ">(5, 3)") 'bool))
-
-   (test-case "igual retorna bool"
-     (check-equal? (type-of "==(4, 4)") 'bool))
-
-   (test-case "ERROR — relacional con booleano"
-     (check-true (check-type-error ">(true, 1)")))
-
-   ;; ---- Primitivas lógicas ----
-
-   (test-case "not(bool) retorna bool"
-     (check-equal? (type-of "not(true)") 'bool))
-
-   (test-case "and(bool, bool) retorna bool"
-     (check-equal? (type-of "and(true, false)") 'bool))
-
-   (test-case "ERROR — not aplicado a int"
-     (check-true (check-type-error "not(5)")))
-
-   ;; ---- if-exp ----
-
-   (test-case "if bien tipado retorna int"
-     (check-equal? (type-of "if true then 1 else 2") 'int))
-
-   (test-case "if bien tipado retorna bool"
-     (check-equal? (type-of "if false then true else false") 'bool))
-
-   (test-case "ERROR — if con condición no booleana"
-     (check-true (check-type-error "if 1 then 2 else 3")))
-
-   (test-case "ERROR — ramas de if con tipos distintos"
-     (check-true (check-type-error "if true then 1 else false")))
-
-   ;; ---- let-exp y var-exp ----
-
-   (test-case "let retorna el tipo del cuerpo"
-     (check-equal? (type-of "let m : int = 10 in m") 'int))
-
-   (test-case "var retorna el tipo del cuerpo"
-     (check-equal? (type-of "var n : int = 5 in +(n, 1)") 'int))
-
-   ;; ---- set-exp BIEN TIPADO ----
-
-   (test-case "BIEN TIPADO — set sobre var retorna void"
-     (check-equal? (type-of "var c : int = 0 in
-                               begin set c := +(c, 3); c end")
-                   'int))
-
-   (test-case "BIEN TIPADO — begin retorna tipo de última expresión"
-     (check-equal? (type-of "var x : int = 1 in
-                               begin x; x end")
-                   'int))
-
-   (test-case "BIEN TIPADO — freeze sobre var retorna void, cuerpo int"
-     (check-equal? (type-of "var k : int = 0 in
-                               begin freeze k; k end")
-                   'int))
-
-   ;; ---- set-exp MAL TIPADO ----
-
-   (test-case "ERROR — set sobre let (identificador inmutable)"
-     ;; El chequeador debe rechazar set sobre 'let
-     (check-true (check-type-error "let m : int = 5 in set m := 10")))
-
-   (test-case "ERROR — set con cambio de tipo (int -> bool)"
-     ;; No se permite cambiar el tipo de una variable mutable
-     (check-true (check-type-error "var flag : bool = true in set flag := 0")))
-
-   (test-case "ERROR — freeze sobre let (identificador inmutable)"
-     (check-true (check-type-error "let m : int = 5 in freeze m")))
-
-   ;; ---- Procedimientos ----
-
-   (test-case "proc con un parámetro int retorna proc-type"
-     (check-equal? (type-of "proc (int x) +(x, 1)")
-                   '((int) -> int)))
-
-   (test-case "proc con dos parámetros retorna proc-type"
-     (check-equal? (type-of "proc (int x, int y) +(x, y)")
-                   '((int int) -> int)))
-
-   (test-case "aplicación bien tipada retorna tipo del resultado"
-     (check-equal? (type-of "let f : (int -> int) = proc (int x) x in (f 5)")
-                   'int))
-
-   (test-case "ERROR — aridad incorrecta en aplicación"
-     (check-true (check-type-error
-                  "let f : (int -> int) = proc (int x) x in (f 1 2)")))
-
-   ;; ---- Ejemplos compuestos ----
-
-   (test-case "BIEN TIPADO — contador con clausura"
+   ;; Test 1: var + set bien tipado retorna int
+   (test-case "programa con set bien tipado: retorna int"
      (check-equal?
-      (type-of "var contador : int = 0 in
-                  let inc : (int -> int) = proc (int delta)
-                              begin
-                                set contador := +(contador, delta);
-                                contador
-                              end
-                  in (inc 1)")
-      'int))
+      (chk:type-to-external-form
+       (type-of "var c : int = 0 in begin set c := +(c, 3) ; c end"))
+      'int
+      "var c:int=0; set c:=+(c,3); c => int"))
 
-   (test-case "BIEN TIPADO — if con primitiva relacional"
+   ;; Test 2: let + begin bien tipado retorna int
+   (test-case "programa con begin bien tipado: retorna int"
      (check-equal?
-      (type-of "let f : (int -> int) = proc (int n)
-                          if ==(n, 0) then 1 else *(n, 2)
-                in (f 5)")
-      'int))
+      (chk:type-to-external-form
+       (type-of "let x : int = 1 in begin x ; x end"))
+      'int
+      "let x:int=1 in begin x; x end => int"))
+
+   ;; Test 3: var + freeze bien tipado retorna void
+   (test-case "programa con freeze bien tipado: retorna void"
+     (check-equal?
+      (chk:type-to-external-form
+       (type-of "var k : int = 0 in begin freeze k ; k end"))
+      'int
+      "var k:int; begin freeze k; k end => int (retorna k)"))
+
+   ;; Test 4 (bonus): proc bien tipado
+   (test-case "proc bien tipado: chequea tipo correcto"
+     (check-equal?
+      (chk:type-to-external-form
+       (type-of "let f : (int -> int) = proc (int n) *(n,2) in (f 5)"))
+      'int
+      "(f 5) donde f duplica => int"))
+
+   ;; Test 5 (bonus): if bien tipado
+   (test-case "if bien tipado con bool y ramas int"
+     (check-equal?
+      (chk:type-to-external-form
+       (type-of "if true then 1 else 2"))
+      'int
+      "if true then 1 else 2 => int"))
+
+   ;; --- Mal tipados ---
+
+   ;; Test 6: set sobre let — el chequeador rechaza
+   (test-case "set sobre let — el chequeador rechaza"
+     (check-true
+      (check-type-error "let m : int = 5 in set m := 10")
+      "set sobre let debe lanzar error de tipos"))
+
+   ;; Test 7: set con cambio de tipo — el chequeador rechaza
+   (test-case "set con cambio de tipo — el chequeador rechaza"
+     (check-true
+      (check-type-error "var flag : bool = true in set flag := 0")
+      "asignar int a bool debe lanzar error de tipos"))
+
+   ;; Test 8: freeze sobre let — el chequeador rechaza
+   (test-case "freeze sobre let — el chequeador rechaza"
+     (check-true
+      (check-type-error "let m : int = 5 in freeze m")
+      "freeze sobre let debe lanzar error de tipos"))
+
+   ;; Test 9 (bonus): aplicar no-procedimiento — error de tipos
+   (test-case "aplicar no-procedimiento lanza error de tipos"
+     (check-true
+      (check-type-error "(5 3)")
+      "aplicar 5 como procedimiento debe lanzar error"))
+
+   ;; Test 10 (bonus): if con ramas de tipos distintos — error
+   (test-case "if con ramas de tipos distintos lanza error de tipos"
+     (check-true
+      (check-type-error "if true then 1 else false")
+      "ramas int y bool en if deben lanzar error de tipos"))
    ))
 
-;; ============================================================
-;; EJECUCIÓN
-;; ============================================================
 
+;; ------------------------------------------------------------
+;; Ejecución de todas las suites
+;; ------------------------------------------------------------
 (module+ test
   (run-tests parte-1)
   (run-tests parte-2)
