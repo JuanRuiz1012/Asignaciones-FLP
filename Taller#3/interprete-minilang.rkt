@@ -13,9 +13,7 @@
 ;; ------------------------------------------------------------
 ;; Especificación léxica  JUAN FELIPE RUIZ 
 ;; ------------------------------------------------------------
-
 ;; T2 == Taller#2
-
 ;; Propósito: define los tokens del lenguaje MiniLang.
 ;; Reglas: comentarios con %, espacios ignorados, números enteros
 ;; y flotantes con signo, identificadores que inician con letra.
