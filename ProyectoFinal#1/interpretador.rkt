@@ -11,7 +11,11 @@
 ;; ============================================================
 
 ;; ============================================================
-;; Especificación léxica — Juan Felipe Ruiz
+;; JUAN FELIPE RUIZ LOPEZ
+;; ============================================================
+
+;; ============================================================
+;; Especificación léxica 
 ;; ============================================================
 
 (define especificacion-lexica
@@ -322,9 +326,6 @@
         (cons val (make-list-of (cdr lst) val)))))
 
 
-;; ============================================================
-;; Unparse — JHORMAN RICARDO LOAIZA
-;; ============================================================
 
 ;; unparse-lista : (Listof T) x (T -> String) x String -> String
 (define unparse-lista
@@ -553,10 +554,6 @@
          (unparse-exp exp))))))
 
 
-;; ============================================================
-;; Store — JHORMAN RICARDO LOAIZA
-;; ============================================================
-
 ;; El store es un vector mutable que crece dinámicamente.
 ;; Cada posición: (cons valor frozen?)
 
@@ -612,10 +609,6 @@
   (lambda (ref)
     (cdr (vector-ref the-store ref))))
 
-
-;; ============================================================
-;; Ambiente — JUAN DIEGO OSPINA
-;; ============================================================
 
 (define scheme-value?
   (lambda (v) #t))
@@ -674,10 +667,6 @@
   (lambda ()
     (ambiente-vacio)))
 
-
-;; ============================================================
-;; Valores expresados — MAURICIO ALEJANDRO ROJAS
-;; ============================================================
 
 ;; ----- Clausuras -----
 
@@ -746,7 +735,7 @@
 
 
 ;; ============================================================
-;; Aplicación de primitivas — JUAN FELIPE RUIZ
+;; Aplicación de primitivas 
 ;; ============================================================
 
 ;; apply-primitive : Primitiva x (Listof Val) -> Val
