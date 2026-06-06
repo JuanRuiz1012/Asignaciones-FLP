@@ -246,7 +246,6 @@
 ;; Utilidades
 ;; ------------------------------------------------------------
 
-;; zip-map : (A B -> C) x (Listof A) x (Listof B) -> (Listof C)
 (define zip-map
   (lambda (f lst1 lst2)
     (if (null? lst1)
@@ -254,7 +253,6 @@
         (cons (f (car lst1) (car lst2))
               (zip-map f (cdr lst1) (cdr lst2))))))
 
-;; zip-map3 : (A B C -> D) x (Listof A) x (Listof B) x (Listof C) -> (Listof D)
 (define zip-map3
   (lambda (f lst1 lst2 lst3)
     (if (null? lst1)
@@ -262,14 +260,12 @@
         (cons (f (car lst1) (car lst2) (car lst3))
               (zip-map3 f (cdr lst1) (cdr lst2) (cdr lst3))))))
 
-;; make-list-of : (Listof A) x B -> (Listof B)
 (define make-list-of
   (lambda (lst val)
     (if (null? lst)
         '()
         (cons val (make-list-of (cdr lst) val)))))
 
-;; unparse-lista : (Listof T) x (T -> String) x String -> String
 (define unparse-lista
   (lambda (lst fn sep)
     (if (null? lst)
@@ -282,7 +278,6 @@
                (string-append primero sep (fn (car resto)))
                (cdr resto)))))))
 
-;; unparse-prim : primitiva -> String
 (define unparse-prim
   (lambda (prim)
     (cases primitiva prim
@@ -305,7 +300,6 @@
       (tostring-prim ()   "to-string")
       (tonumber-prim ()   "to-number"))))
 
-;; unparse-pat : patron -> String
 (define unparse-pat
   (lambda (p)
     (cases patron p
@@ -326,7 +320,6 @@
 ;;  SECCIÓN 2 — JHORMAN RICARDO LOAIZA
 ;;  Unparse-exp, Store y Ambiente
 ;; ============================================================
-;; unparse-exp : expresion -> String
 (define unparse-exp
   (lambda (exp)
     (cases expresion exp
@@ -455,7 +448,6 @@
                        "(" (unparse-lista args unparse-exp ", ") ")"))
       )))
 
-;; unparse-variante : variante -> String
 (define unparse-variante
   (lambda (v)
     (cases variante v
@@ -464,7 +456,6 @@
          (symbol->string nombre)
          "(" (unparse-lista campos (lambda (c) (symbol->string c)) ", ") ")")))))
 
-;; unparse-decl : decl-tipo -> String
 (define unparse-decl
   (lambda (d)
     (cases decl-tipo d
@@ -478,7 +469,6 @@
            (apply string-append extras)
            "\n"))))))
 
-;; unparse : programa -> String
 (define unparse
   (lambda (pgm)
     (cases programa pgm
@@ -489,8 +479,7 @@
 
 
 ;; ------------------------------------------------------------
-;; Store — memoria mutable con soporte de freeze
-;; Cada celda del vector es (cons valor frozen?).
+;; Store
 ;; ------------------------------------------------------------
 
 (define the-store 'uninitialized)
@@ -499,8 +488,6 @@
   (lambda ()
     (set! the-store (make-vector 0))))
 
-;; newref : Val -> Ref
-;; Crea una celda nueva; crece el vector manualmente (no hay vector-copy! en eopl).
 (define newref
   (lambda (val)
     (let* ((n (vector-length the-store))
@@ -514,12 +501,10 @@
       (set! the-store nuevo)
       n)))
 
-;; deref : Ref -> Val
 (define deref
   (lambda (ref)
     (car (vector-ref the-store ref))))
 
-;; setref! : Ref x Val -> Void
 (define setref!
   (lambda (ref val)
     (let ((celda (vector-ref the-store ref)))
@@ -528,7 +513,6 @@
                       "Intento de modificar referencia congelada: ~s" ref)
           (vector-set! the-store ref (cons val #f))))))
 
-;; freezeref! : Ref -> Void
 (define freezeref!
   (lambda (ref)
     (let ((celda (vector-ref the-store ref)))
@@ -536,8 +520,6 @@
 
 ;; ------------------------------------------------------------
 ;; Ambiente
-;; Cada ligadura guarda (valor . mutable?).
-;; Para var: valor es una Ref; para let/param: valor es directo.
 ;; ------------------------------------------------------------
 
 (define scheme-value? (lambda (v) #t))
@@ -563,7 +545,6 @@
             (cons (car vals) (car muts))
             (buscar-en-listas id (cdr ids) (cdr vals) (cdr muts))))))
 
-;; apply-env : Ambiente x Symbol -> (cons Val Bool)
 (define apply-env
   (lambda (env id)
     (cases ambiente env
@@ -617,22 +598,12 @@
 ;;  Streams perezosos, tipos algebraicos y pattern matching
 ;; ============================================================
 
-;; ------------------------------------------------------------
-;; Streams
-;; Un stream no vacío es un par (cabeza . thunk).
-;; El thunk puede ser una clausura StreamLang o una lambda Scheme
-;; (usada por map/filter/zip-with para eficiencia).
-;; El stream vacío es el símbolo 'empty-stream.
-;; ------------------------------------------------------------
-
 (define stream-empty?
   (lambda (v) (eq? v 'empty-stream)))
 
 (define stream-car
   (lambda (s) (car s)))
 
-;; stream-thunk-apply : Thunk -> Stream
-;; Fuerza un thunk que puede ser clausura StreamLang o lambda Scheme.
 (define stream-thunk-apply
   (lambda (thunk)
     (cond
@@ -644,8 +615,6 @@
   (lambda (s)
     (stream-thunk-apply (cdr s))))
 
-;; apply-clausura : Clausura x (Listof Val) -> Val
-;; Auxiliar central: extiende el ambiente de la clausura y evalúa su cuerpo.
 (define apply-clausura
   (lambda (proc-val args)
     (let* ((params  (clausura-params proc-val))
@@ -655,42 +624,75 @@
            (new-env (extend-env params args muts c-env)))
       (value-of body new-env))))
 
-;; ------------------------------------------------------------
-;; Valores de tipos algebraicos
-;; Un valor constructor es un par (nombre . lista-de-campos).
-;; Esta representación es simple: fácil de inspeccionar en match.
-;; ------------------------------------------------------------
-
-;; make-variante : Symbol x (Listof Val) -> VarianteVal
 (define make-variante
   (lambda (nombre campos) (cons nombre campos)))
 
-;; variante-nombre : VarianteVal -> Symbol
 (define variante-nombre (lambda (v) (car v)))
 
-;; variante-campos : VarianteVal -> (Listof Val)
 (define variante-campos (lambda (v) (cdr v)))
 
-;; variante-val? : Any -> Boolean
 (define variante-val?
   (lambda (v)
     (and (pair? v) (symbol? (car v)))))
 
 ;; ------------------------------------------------------------
-;; Pattern matching
-;; match-patron : Patron x Val x Ambiente -> Ambiente | #f
-;; Retorna ambiente extendido con ligaduras del patrón, o #f si no coincide.
+;; Ambiente de tipos (tabla de aridades de constructores)
+;; Mapea símbolo-constructor -> número de campos esperados.
+;; Se reinicializa en cada llamada a value-of-program.
+;; Representación: lista de pares (nombre . aridad).
 ;; ------------------------------------------------------------
+
+(define the-tipo-env 'uninitialized)
+
+(define initialize-tipo-env!
+  (lambda ()
+    (set! the-tipo-env '())))
+
+;; registrar-constructor! : Symbol x Int -> Void
+;; Agrega (nombre . aridad) a the-tipo-env.
+(define registrar-constructor!
+  (lambda (nombre aridad)
+    (set! the-tipo-env (cons (cons nombre aridad) the-tipo-env))))
+
+;; buscar-aridad : Symbol -> Int | #f
+;; Retorna la aridad registrada del constructor, o #f si no existe.
+(define buscar-aridad
+  (lambda (nombre)
+    (let loop ((tabla the-tipo-env))
+      (cond
+        [(null? tabla) #f]
+        [(equal? (caar tabla) nombre) (cdar tabla)]
+        [else (loop (cdr tabla))]))))
+
+;; registrar-decl : decl-tipo -> Void
+;; Recorre las variantes de una declaración datatype y registra cada una.
+(define registrar-decl
+  (lambda (decl)
+    (cases decl-tipo decl
+      (a-datatype-decl (nombre primera resto)
+        (let registrar-variante ((v primera))
+          (cases variante v
+            (a-variant (ctor-nombre campos)
+              (registrar-constructor! ctor-nombre (length campos)))))
+        (for-each
+         (lambda (v)
+           (cases variante v
+             (a-variant (ctor-nombre campos)
+               (registrar-constructor! ctor-nombre (length campos)))))
+         resto)))))
+
+;; registrar-decls : (Listof decl-tipo) -> Void
+(define registrar-decls
+  (lambda (decls)
+    (for-each registrar-decl decls)))
 
 (define match-patron
   (lambda (pat val env)
     (cases patron pat
 
-      ;; Literales numéricos
       (num-pat (n)
         (if (equal? val n) env #f))
 
-      ;; Literales cadena (stripear comillas igual que str-exp)
       (str-pat (s)
         (let ((s-limpia (substring s 1 (- (string-length s) 1))))
           (if (equal? val s-limpia) env #f)))
@@ -701,19 +703,15 @@
       (false-pat ()
         (if (equal? val #f) env #f))
 
-      ;; Stream vacío
       (empty-stream-pat ()
         (if (stream-empty? val) env #f))
 
-      ;; Wildcard: siempre coincide, no liga nada
       (wildcard-pat (w)
         env)
 
-      ;; Variable: siempre coincide, liga id a val (inmutable)
       (var-pat (id)
         (extend-env (list id) (list val) (list #f) env))
 
-      ;; Constructor: nombre debe coincidir, luego sub-patrones con campos
       (ctor-pat (nombre subpats)
         (if (and (variante-val? val)
                  (equal? (variante-nombre val) nombre)
@@ -729,7 +727,6 @@
                         #f))))
             #f))
 
-      ;; Stream no vacío: liga h-pat con la cabeza, t-pat con el resto forzado
       (stream-pat (h-pat t-pat)
         (if (stream-empty? val)
             #f
@@ -739,12 +736,6 @@
                   #f))))
       )))
 
-;; ------------------------------------------------------------
-;; Auxiliares para operaciones de stream
-;; Operan sobre valores de stream directamente (sin AST).
-;; ------------------------------------------------------------
-
-;; value-of-map : Clausura x Stream -> Stream (perezoso)
 (define value-of-map
   (lambda (f s)
     (if (stream-empty? s)
@@ -752,7 +743,6 @@
         (cons (apply-clausura f (list (stream-car s)))
               (lambda () (value-of-map f (stream-cdr s)))))))
 
-;; value-of-filter : Clausura x Stream -> Stream (perezoso)
 (define value-of-filter
   (lambda (pred s)
     (cond
@@ -763,7 +753,6 @@
       [else
        (value-of-filter pred (stream-cdr s))])))
 
-;; value-of-take : Int x Stream -> List (materializa)
 (define value-of-take
   (lambda (n s)
     (cond
@@ -773,7 +762,6 @@
        (cons (stream-car s)
              (value-of-take (- n 1) (stream-cdr s)))])))
 
-;; value-of-zip-with : Clausura x Stream x Stream -> Stream (perezoso)
 (define value-of-zip-with
   (lambda (f s1 s2)
     (if (or (stream-empty? s1) (stream-empty? s2))
@@ -788,7 +776,6 @@
 ;;  Primitivas y value-of completo 
 ;; ============================================================
 
-;; apply-primitive : Primitiva x (Listof Val) -> Val
 (define apply-primitive
   (lambda (prim args)
     (cases primitiva prim
@@ -829,18 +816,12 @@
           (if n n (eopl:error 'tonumber-prim
                               "No se puede convertir a número: ~s" s)))))))
 
-;; ------------------------------------------------------------
-;; value-of : Expresion x Ambiente -> Val
-;; ------------------------------------------------------------
-
 (define value-of
   (lambda (exp env)
     (cases expresion exp
 
-      ;; ---- Literales ----
       (num-exp (n) n)
       (float-exp (f) f)
-      ;; SLLGEN incluye las comillas en el string; se stripean.
       (str-exp (s)
         (substring s 1 (- (string-length s) 1)))
       (char-exp (c)
@@ -850,14 +831,11 @@
       (void-exp () 'void)
       (empty-stream-exp () 'empty-stream)
 
-      ;; ---- Variable ----
-      ;; Var mutables guardan una Ref en el ambiente → desreferenciar.
       (var-exp (id)
         (let* ((r (apply-env env id))
                (val (car r)) (mut? (cdr r)))
           (if mut? (deref val) val)))
 
-      ;; ---- Let (inmutable) ----
       (let-exp (id1 rand1 ids rands body)
         (let* ((todos-ids  (cons id1 ids))
                (todas-exps (cons rand1 rands))
@@ -866,7 +844,6 @@
                (new-env (extend-env todos-ids vals muts env)))
           (value-of body new-env)))
 
-      ;; ---- Var (mutable) ----
       (var-decl-exp (id1 rand1 ids rands body)
         (let* ((todos-ids  (cons id1 ids))
                (todas-exps (cons rand1 rands))
@@ -876,7 +853,6 @@
                (new-env (extend-env todos-ids refs muts env)))
           (value-of body new-env)))
 
-      ;; ---- Set ----
       (set-exp (id val-exp)
         (let* ((r (apply-env env id))
                (ref (car r)) (mut? (cdr r)))
@@ -885,7 +861,6 @@
                           "No se puede asignar a variable inmutable: ~s" id)
               (begin (setref! ref (value-of val-exp env)) 'void))))
 
-      ;; ---- Freeze ----
       (freeze-exp (id)
         (let* ((r (apply-env env id))
                (ref (car r)) (mut? (cdr r)))
@@ -894,14 +869,12 @@
                           "No se puede congelar una variable let: ~s" id)
               (begin (freezeref! ref) 'void))))
 
-      ;; ---- Begin ----
       (begin-exp (e1 resto)
         (let recorrer ((val (value-of e1 env)) (exps resto))
           (if (null? exps)
               val
               (recorrer (value-of (car exps) env) (cdr exps)))))
 
-      ;; ---- If / elif / else ----
       (if-exp (cond1 then1 elif-conds elif-thens else-e)
         (let ((v (value-of cond1 env)))
           (if (not (boolean? v))
@@ -916,16 +889,13 @@
                               (value-of (car ts) env)
                               (buscar-elif (cdr cs) (cdr ts))))))))))
 
-      ;; ---- Primitivas ----
       (prim-exp (prim arg-exps)
         (let ((args (map (lambda (e) (value-of e env)) arg-exps)))
           (apply-primitive prim args)))
 
-      ;; ---- Procedimientos ----
       (proc-exp (ids body)
         (make-clausura ids body env))
 
-      ;; ---- Aplicación ----
       (app-exp (rator rand-exps)
         (let ((proc-val (value-of rator env))
               (args     (map (lambda (e) (value-of e env)) rand-exps)))
@@ -933,7 +903,6 @@
               (eopl:error 'app-exp "Se esperaba una clausura: ~s" proc-val)
               (apply-clausura proc-val args))))
 
-      ;; ---- Letrec ----
       (letrec-exp (name1 ids1 body1 names idss bodies cuerpo)
         (let* ((todos-names  (cons name1 names))
                (todos-params (cons ids1 idss))
@@ -942,11 +911,6 @@
                                             todos-bodies env)))
           (value-of cuerpo rec-env)))
 
-      ;; ----------------------------------------------------------------
-      ;; Avance #3: Streams
-      ;; ----------------------------------------------------------------
-
-      ;; stream(head, thunk): head se evalúa ya; thunk debe ser proc() ... end
       (stream-cons-exp (head-e tail-e)
         (let ((h (value-of head-e env))
               (t (value-of tail-e env)))
@@ -955,51 +919,46 @@
                           "El segundo argumento debe ser proc(): ~s" t)
               (cons h t))))
 
-      ;; head(s): primer elemento
       (head-exp (s-e)
         (let ((s (value-of s-e env)))
           (if (stream-empty? s)
               (eopl:error 'head-exp "head aplicado a empty-stream")
               (stream-car s))))
 
-      ;; tail(s): fuerza el thunk y retorna el resto
       (tail-exp (s-e)
         (let ((s (value-of s-e env)))
           (if (stream-empty? s)
               (eopl:error 'tail-exp "tail aplicado a empty-stream")
               (stream-cdr s))))
 
-      ;; stream-null?(s)
       (stream-null-exp (s-e)
         (stream-empty? (value-of s-e env)))
 
-      ;; map(f, s) — perezoso
       (map-exp (f-e s-e)
         (value-of-map (value-of f-e env) (value-of s-e env)))
 
-      ;; filter(pred, s) — perezoso
       (filter-exp (pred-e s-e)
         (value-of-filter (value-of pred-e env) (value-of s-e env)))
 
-      ;; take(n, s) — materializa en lista
       (take-exp (n-e s-e)
         (value-of-take (value-of n-e env) (value-of s-e env)))
 
-      ;; zip-with(f, s1, s2) — perezoso
       (zip-with-exp (f-e s1-e s2-e)
         (value-of-zip-with (value-of f-e env)
                            (value-of s1-e env)
                            (value-of s2-e env)))
 
-      ;; ----------------------------------------------------------------
-      ;; Avance #3: Constructor de tipo algebraico
-      ;; ----------------------------------------------------------------
       (ctor-exp (nombre arg-exps)
-        (make-variante nombre (map (lambda (e) (value-of e env)) arg-exps)))
+        (let* ((args   (map (lambda (e) (value-of e env)) arg-exps))
+               (aridad (buscar-aridad nombre)))
+          ;; Si el constructor fue declarado con datatype, verificamos aridad.
+          ;; Si no está registrado lo creamos igualmente (compatibilidad).
+          (when (and aridad (not (= (length args) aridad)))
+            (eopl:error 'ctor-exp
+                        "Constructor ~s esperaba ~s argumento(s) pero recibió ~s"
+                        nombre aridad (length args)))
+          (make-variante nombre args)))
 
-      ;; ----------------------------------------------------------------
-      ;; Avance #3: Match
-      ;; ----------------------------------------------------------------
       (match-exp (val-e pat1 exp1 pats exps)
         (let ((val (value-of val-e env)))
           (let buscar ((ps (cons pat1 pats))
@@ -1021,8 +980,12 @@
 (define value-of-program
   (lambda (pgm)
     (initialize-store!)
+    (initialize-tipo-env!)
     (cases programa pgm
       (a-program (decls exp)
+        ;; Registrar todas las variantes declaradas con datatype
+        ;; antes de evaluar la expresión principal.
+        (registrar-decls decls)
         (value-of exp (ambiente-inicial))))))
 
 (define run
