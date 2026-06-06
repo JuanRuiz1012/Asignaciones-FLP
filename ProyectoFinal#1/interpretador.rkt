@@ -322,6 +322,10 @@
                        "(" (unparse-lista subpats unparse-pat ", ") ")"))
       (var-pat (id)        (symbol->string id)))))
 
+;; ============================================================
+;;  SECCIÓN 2 — JHORMAN RICARDO LOAIZA
+;;  Unparse-exp, Store y Ambiente
+;; ============================================================
 ;; unparse-exp : expresion -> String
 (define unparse-exp
   (lambda (exp)
@@ -483,11 +487,6 @@
          (apply string-append (map unparse-decl decls))
          (unparse-exp exp))))))
 
-
-;; ============================================================
-;;  SECCIÓN 2 — JHORMAN RICARDO LOAIZA
-;;  Store y Ambiente
-;; ============================================================
 
 ;; ------------------------------------------------------------
 ;; Store — memoria mutable con soporte de freeze
