@@ -785,7 +785,7 @@
 
 ;; ============================================================
 ;;  SECCIÓN 4 — JUAN DIEGO OSPINA
-;;  Primitivas y value-of completo (Avances 1, 2 y 3)
+;;  Primitivas y value-of completo 
 ;; ============================================================
 
 ;; apply-primitive : Primitiva x (Listof Val) -> Val
